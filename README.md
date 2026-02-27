@@ -59,6 +59,12 @@ DEMOIT_GATEWAY_URL=https://tunnel.yourdomain.com demoit 3000
 - `docs/` -- Protocol spec, abuse controls, roadmap
 - `examples/` -- Usage examples
 
+## Contributing
+
+- Contribution guide: `CONTRIBUTING.md`
+- Code of conduct: `CODE_OF_CONDUCT.md`
+- Security policy: `SECURITY.md`
+
 ## Gateway Environment Variables
 
 | Variable | Default |
