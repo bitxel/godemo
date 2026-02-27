@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,12 +21,13 @@ func (b *bridgeConn) writeMessage(messageType int, payload []byte) error {
 }
 
 type tunnelSession struct {
-	id          string
-	token       string
-	subdomain   string
-	clientIP    string
-	fingerprint string
-	expiresAt   time.Time
+	id           string
+	token        string
+	subdomain    string
+	clientIP     string
+	fingerprint  string
+	allowedPaths []string
+	expiresAt    time.Time
 
 	conn   *websocket.Conn
 	connMu sync.RWMutex
@@ -40,6 +42,20 @@ type tunnelSession struct {
 
 func (s *tunnelSession) isExpired(now time.Time) bool {
 	return now.After(s.expiresAt)
+}
+
+// pathAllowed returns true if the request path is permitted.
+// An empty allowedPaths list means all paths are allowed.
+func (s *tunnelSession) pathAllowed(reqPath string) bool {
+	if len(s.allowedPaths) == 0 {
+		return true
+	}
+	for _, prefix := range s.allowedPaths {
+		if reqPath == prefix || strings.HasPrefix(reqPath, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *tunnelSession) setConn(conn *websocket.Conn) {

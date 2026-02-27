@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -249,10 +250,187 @@ func TestEventLoopUnknownMessageType(t *testing.T) {
 	}
 }
 
+func TestCreateSessionWithAllowedPaths(t *testing.T) {
+	var receivedPaths []string
+	mockGateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/sessions" {
+			http.Error(w, "not found", 404)
+			return
+		}
+		var req createSessionRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		receivedPaths = req.AllowedPaths
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(createSessionResponse{
+			SessionID:  "ses_wl",
+			Subdomain:  "dm-wl",
+			PublicURL:  "http://dm-wl.localhost",
+			WSEndpoint: "ws://localhost/api/v1/tunnel/ws?session_id=ses_wl",
+			Token:      "tok_wl",
+			TTLSeconds: 7200,
+			ExpiresAt:  "2099-01-01T00:00:00Z",
+		})
+	}))
+	defer mockGateway.Close()
+
+	tun := newTunnel(mockGateway.URL, "127.0.0.1", 3000)
+	tun.allowedPaths = []string{"/api", "/health"}
+	if err := tun.createSession(); err != nil {
+		t.Fatalf("createSession: %v", err)
+	}
+	if len(receivedPaths) != 2 || receivedPaths[0] != "/api" || receivedPaths[1] != "/health" {
+		t.Errorf("expected [/api /health], got %v", receivedPaths)
+	}
+}
+
+func TestCreateSessionWithoutAllowedPaths(t *testing.T) {
+	var receivedBody map[string]any
+	mockGateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&receivedBody)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(createSessionResponse{
+			SessionID:  "ses_no_wl",
+			Subdomain:  "dm-no-wl",
+			PublicURL:  "http://dm-no-wl.localhost",
+			WSEndpoint: "ws://localhost/api/v1/tunnel/ws?session_id=ses_no_wl",
+			Token:      "tok_no_wl",
+			TTLSeconds: 7200,
+			ExpiresAt:  "2099-01-01T00:00:00Z",
+		})
+	}))
+	defer mockGateway.Close()
+
+	tun := newTunnel(mockGateway.URL, "127.0.0.1", 3000)
+	if err := tun.createSession(); err != nil {
+		t.Fatalf("createSession: %v", err)
+	}
+	if _, exists := receivedBody["allowed_paths"]; exists {
+		t.Error("allowed_paths should not be sent when empty (omitempty)")
+	}
+}
+
 func TestSchemeFixPreservesPath(t *testing.T) {
 	got := fixWSScheme("ws://gw.test:8080/api/v1/tunnel/ws?session_id=ses_abc", "https://gw.test")
 	want := "wss://gw.test:8080/api/v1/tunnel/ws?session_id=ses_abc"
 	if got != want {
 		t.Errorf("fixWSScheme did not preserve path; got %q, want %q", got, want)
+	}
+}
+
+func TestRunWithReconnect(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	connectCount := 0
+	var mu sync.Mutex
+	secondConnReady := make(chan struct{})
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		var auth tunnelMessage
+		if err := conn.ReadJSON(&auth); err != nil {
+			return
+		}
+
+		mu.Lock()
+		connectCount++
+		n := connectCount
+		mu.Unlock()
+
+		if n == 1 {
+			return
+		}
+		// Second connection: signal ready, then block until closed
+		close(secondConnReady)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	tun := newTunnel("http://localhost", "127.0.0.1", 3000)
+	tun.wsEndpoint = "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	tun.token = "test-token"
+	tun.sessionID = "ses_test"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		tun.runWithReconnect(ctx)
+		close(done)
+	}()
+
+	// Wait for the second connection to be established (proves reconnect worked)
+	select {
+	case <-secondConnReady:
+		// Reconnect succeeded
+	case <-time.After(10 * time.Second):
+		t.Fatal("second connection never established")
+	}
+
+	mu.Lock()
+	finalCount := connectCount
+	mu.Unlock()
+	if finalCount < 2 {
+		t.Errorf("expected at least 2 connections (reconnect), got %d", finalCount)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runWithReconnect did not exit after cancel")
+	}
+}
+
+func TestRunWithReconnectCancelledContext(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		// Read auth then close immediately to trigger reconnect attempt
+		conn.ReadJSON(&tunnelMessage{})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	tun := newTunnel("http://localhost", "127.0.0.1", 3000)
+	tun.wsEndpoint = "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	tun.token = "test-token"
+	tun.sessionID = "ses_test"
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		tun.runWithReconnect(ctx)
+		close(done)
+	}()
+
+	// Cancel during the backoff wait
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+		// good - should exit promptly after cancel
+	case <-time.After(5 * time.Second):
+		t.Fatal("runWithReconnect did not exit after context cancellation")
 	}
 }

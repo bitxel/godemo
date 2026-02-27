@@ -13,19 +13,21 @@ import (
 	"os/user"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
 type tunnel struct {
-	gatewayURL    string
-	localHost     string
-	localPort     int
+	gatewayURL     string
+	localHost      string
+	localPort      int
 	requestTimeout float64
+	allowedPaths   []string
 
-	sessionID string
-	token     string
-	publicURL string
+	sessionID  string
+	token      string
+	publicURL  string
 	wsEndpoint string
 
 	ws      *websocket.Conn
@@ -50,8 +52,9 @@ func newTunnel(gatewayURL string, localHost string, localPort int) *tunnel {
 func (t *tunnel) createSession() error {
 	fingerprint := machineFingerprint()
 	reqBody := createSessionRequest{
-		Fingerprint: fingerprint,
-		Port:        t.localPort,
+		Fingerprint:  fingerprint,
+		Port:         t.localPort,
+		AllowedPaths: t.allowedPaths,
 	}
 	body, _ := json.Marshal(reqBody)
 
@@ -124,16 +127,20 @@ func (t *tunnel) wsSend(msg tunnelMessage) error {
 }
 
 func (t *tunnel) eventLoop(ctx context.Context) {
+	ws := t.ws
+	loopCtx, loopCancel := context.WithCancel(ctx)
+	defer loopCancel()
+
 	go func() {
-		<-ctx.Done()
-		if t.ws != nil {
-			_ = t.ws.Close()
+		<-loopCtx.Done()
+		if ws != nil {
+			_ = ws.Close()
 		}
 	}()
 
 	for {
 		var msg tunnelMessage
-		if err := t.ws.ReadJSON(&msg); err != nil {
+		if err := ws.ReadJSON(&msg); err != nil {
 			if ctx.Err() != nil {
 				return
 			}
@@ -154,6 +161,48 @@ func (t *tunnel) eventLoop(ctx context.Context) {
 			_ = t.wsSend(tunnelMessage{Type: "pong"})
 		case "error":
 			logWarn("gateway error: %s", msg.Message)
+		}
+	}
+}
+
+func (t *tunnel) runWithReconnect(ctx context.Context) {
+	backoff := 1 * time.Second
+	attempt := 0
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		if attempt > 0 {
+			logInfo("reconnecting tunnel ws in %s...", backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			backoff = backoff * 2
+			if backoff > 30*time.Second {
+				backoff = 30 * time.Second
+			}
+		}
+
+		attempt++
+
+		if err := t.connect(ctx); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			logError("reconnect failed: %v", err)
+			continue
+		}
+
+		backoff = 1 * time.Second
+		attempt = 0
+		t.eventLoop(ctx)
+
+		if ctx.Err() != nil {
+			return
 		}
 	}
 }

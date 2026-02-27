@@ -91,14 +91,15 @@ func (s *server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 	exp := time.Now().Add(ttl)
 	session := &tunnelSession{
-		id:          sessionID,
-		token:       token,
-		subdomain:   subdomain,
-		clientIP:    ip,
-		fingerprint: fingerprint,
-		expiresAt:   exp,
-		pending:     make(map[string]chan tunnelMessage),
-		wsConns:     make(map[string]*bridgeConn),
+		id:           sessionID,
+		token:        token,
+		subdomain:    subdomain,
+		clientIP:     ip,
+		fingerprint:  fingerprint,
+		allowedPaths: req.AllowedPaths,
+		expiresAt:    exp,
+		pending:      make(map[string]chan tunnelMessage),
+		wsConns:      make(map[string]*bridgeConn),
 	}
 	s.sessions[sessionID] = session
 	s.bySubdomain[subdomain] = sessionID
@@ -335,6 +336,11 @@ func (s *server) handlePublicRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	if session.getConn() == nil {
 		writeJSON(w, http.StatusServiceUnavailable, apiError{Error: "tunnel disconnected"})
+		return
+	}
+
+	if !session.pathAllowed(r.URL.Path) {
+		writeJSON(w, http.StatusForbidden, apiError{Error: "path not allowed"})
 		return
 	}
 

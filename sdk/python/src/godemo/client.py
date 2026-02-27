@@ -77,11 +77,13 @@ class Tunnel:
         gateway_url: str,
         local_host: str = "127.0.0.1",
         request_timeout_seconds: float = 20.0,
+        allowed_paths: list[str] | None = None,
     ) -> None:
         self.local_port = local_port
         self.local_host = local_host
         self.gateway_url = gateway_url.rstrip("/")
         self.request_timeout_seconds = request_timeout_seconds
+        self.allowed_paths = allowed_paths or []
 
         self.public_url: str | None = None
         self.session_id: str | None = None
@@ -134,22 +136,44 @@ class Tunnel:
 
         self._ws_write_lock = asyncio.Lock()
 
-        logger.info("connecting tunnel ws %s", session.ws_endpoint)
-        try:
-            async with websockets.connect(
-                session.ws_endpoint,
-                max_size=8 * 1024 * 1024,
-                ping_interval=20,
-                ping_timeout=20,
-                close_timeout=3,
-            ) as ws:
-                logger.info("tunnel ws connected, session=%s", session.session_id)
-                self._connected.set()
-                await ws.send(json.dumps({"type": "auth", "token": session.token}))
-                await self._event_loop(ws)
-        except Exception as exc:
-            logger.error("tunnel ws error: %s", exc)
-            raise
+        backoff = 1.0
+        attempt = 0
+
+        while not self._stop_flag.is_set():
+            if attempt > 0:
+                logger.info(
+                    "reconnecting tunnel ws in %.0fs...",
+                    backoff,
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 30.0)
+                if self._stop_flag.is_set():
+                    break
+
+            attempt += 1
+
+            try:
+                logger.info("connecting tunnel ws %s", session.ws_endpoint)
+                async with websockets.connect(
+                    session.ws_endpoint,
+                    max_size=8 * 1024 * 1024,
+                    ping_interval=20,
+                    ping_timeout=20,
+                    close_timeout=3,
+                ) as ws:
+                    logger.info("tunnel ws connected, session=%s", session.session_id)
+                    self._connected.set()
+                    await ws.send(json.dumps({"type": "auth", "token": session.token}))
+                    backoff = 1.0
+                    attempt = 0
+                    await self._event_loop(ws)
+            except Exception as exc:
+                logger.error("tunnel ws error: %s", exc)
+                if self._stop_flag.is_set():
+                    break
+                continue
+
+            break
 
         await self._delete_session()
 
@@ -373,6 +397,8 @@ class Tunnel:
             "fingerprint": _machine_fingerprint(),
             "port": self.local_port,
         }
+        if self.allowed_paths:
+            payload["allowed_paths"] = self.allowed_paths
         logger.info("creating session at %s", self.gateway_url)
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
@@ -414,6 +440,7 @@ def expose(
     gateway_url: str | None = None,
     local_host: str = "127.0.0.1",
     request_timeout_seconds: float = 20.0,
+    allowed_paths: list[str] | None = None,
 ) -> Tunnel:
     """
     One-line entrypoint:
@@ -424,6 +451,7 @@ def expose(
         local_host=local_host,
         gateway_url=gateway_url or DEFAULT_GATEWAY_URL,
         request_timeout_seconds=request_timeout_seconds,
+        allowed_paths=allowed_paths,
     )
     return tunnel.start()
 
@@ -435,6 +463,7 @@ def share_app(
     port: int = 0,
     gateway_url: str | None = None,
     request_timeout_seconds: float = 20.0,
+    allowed_paths: list[str] | None = None,
 ) -> Tunnel:
     """
     Expose a WSGI/ASGI app (FastAPI, Flask, etc.) directly.
@@ -496,6 +525,7 @@ def share_app(
         gateway_url=gateway_url,
         local_host=host,
         request_timeout_seconds=request_timeout_seconds,
+        allowed_paths=allowed_paths,
     )
 
 
@@ -567,6 +597,13 @@ def run_cli() -> None:
         action="store_true",
         help="Enable verbose request logging",
     )
+    parser.add_argument(
+        "--allow-path",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Only allow requests to this path prefix (repeatable, e.g. --allow-path /api --allow-path /health). If omitted, all paths are allowed.",
+    )
 
     args = parser.parse_args()
 
@@ -577,13 +614,20 @@ def run_cli() -> None:
         stream=sys.stderr,
     )
 
-    tunnel = expose(port=args.port, gateway_url=args.gateway, local_host=args.host)
+    tunnel = expose(
+        port=args.port,
+        gateway_url=args.gateway,
+        local_host=args.host,
+        allowed_paths=args.allow_path or None,
+    )
 
     tunnel._connected.wait(timeout=10)
 
     print("\n  godemo tunnel active\n")
     print(f"  Public URL:  {tunnel.public_url}")
     print(f"  Forwarding:  {args.host}:{args.port}")
+    if args.allow_path:
+        print(f"  Allowed:     {', '.join(args.allow_path)}")
     print("\n  Press Ctrl+C to stop.\n")
 
     def _shutdown(sig: int, frame: Any) -> None:

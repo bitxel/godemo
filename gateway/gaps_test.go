@@ -606,6 +606,282 @@ func TestRequestProtoDirectTLS(t *testing.T) {
 	}
 }
 
+// --- path whitelist: allowed path passes, disallowed returns 403 ---
+
+func TestPathWhitelistAllowed(t *testing.T) {
+	s, ts := newTestServer()
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]any{
+		"fingerprint":   "wl-test",
+		"port":          9999,
+		"allowed_paths": []string{"/api", "/health"},
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	defer resp.Body.Close()
+	var session createSessionResponse
+	json.NewDecoder(resp.Body).Decode(&session)
+
+	conn := dialSDKWS(t, ts.URL, session)
+	defer conn.Close()
+	time.Sleep(50 * time.Millisecond)
+
+	go func() {
+		for {
+			var req tunnelMessage
+			if err := conn.ReadJSON(&req); err != nil {
+				return
+			}
+			if req.Type == "request" {
+				_ = conn.WriteJSON(tunnelMessage{
+					Type:      "response",
+					RequestID: req.RequestID,
+					Status:    200,
+					BodyB64:   base64.StdEncoding.EncodeToString([]byte("ok")),
+				})
+			}
+		}
+	}()
+
+	// Allowed: /api
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/users", nil)
+	req.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+	r, _ := http.DefaultClient.Do(req)
+	r.Body.Close()
+	if r.StatusCode != 200 {
+		t.Fatalf("/api/users: expected 200, got %d", r.StatusCode)
+	}
+
+	// Allowed: /health
+	req2, _ := http.NewRequest(http.MethodGet, ts.URL+"/health", nil)
+	req2.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+	r2, _ := http.DefaultClient.Do(req2)
+	r2.Body.Close()
+	if r2.StatusCode != 200 {
+		t.Fatalf("/health: expected 200, got %d", r2.StatusCode)
+	}
+
+	// Blocked: /admin
+	req3, _ := http.NewRequest(http.MethodGet, ts.URL+"/admin", nil)
+	req3.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+	r3, _ := http.DefaultClient.Do(req3)
+	r3.Body.Close()
+	if r3.StatusCode != http.StatusForbidden {
+		t.Fatalf("/admin: expected 403, got %d", r3.StatusCode)
+	}
+
+	// Blocked: /
+	req4, _ := http.NewRequest(http.MethodGet, ts.URL+"/", nil)
+	req4.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+	r4, _ := http.DefaultClient.Do(req4)
+	r4.Body.Close()
+	if r4.StatusCode != http.StatusForbidden {
+		t.Fatalf("/: expected 403, got %d", r4.StatusCode)
+	}
+}
+
+func TestPathWhitelistEmpty(t *testing.T) {
+	s, ts := newTestServer()
+	defer ts.Close()
+
+	session := createSession(t, ts.URL)
+	conn := dialSDKWS(t, ts.URL, session)
+	defer conn.Close()
+
+	go func() {
+		for {
+			var req tunnelMessage
+			if err := conn.ReadJSON(&req); err != nil {
+				return
+			}
+			if req.Type == "request" {
+				_ = conn.WriteJSON(tunnelMessage{
+					Type:      "response",
+					RequestID: req.RequestID,
+					Status:    200,
+					BodyB64:   base64.StdEncoding.EncodeToString([]byte("ok")),
+				})
+			}
+		}
+	}()
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/anything/goes", nil)
+	req.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+	r, _ := http.DefaultClient.Do(req)
+	r.Body.Close()
+	if r.StatusCode != 200 {
+		t.Fatalf("no whitelist: expected 200, got %d", r.StatusCode)
+	}
+}
+
+func TestPathWhitelistExactMatch(t *testing.T) {
+	s, ts := newTestServer()
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]any{
+		"fingerprint":   "wl-exact",
+		"port":          8888,
+		"allowed_paths": []string{"/api"},
+	})
+	resp, _ := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	defer resp.Body.Close()
+	var session createSessionResponse
+	json.NewDecoder(resp.Body).Decode(&session)
+
+	conn := dialSDKWS(t, ts.URL, session)
+	defer conn.Close()
+
+	go func() {
+		for {
+			var req tunnelMessage
+			if err := conn.ReadJSON(&req); err != nil {
+				return
+			}
+			if req.Type == "request" {
+				_ = conn.WriteJSON(tunnelMessage{
+					Type:      "response",
+					RequestID: req.RequestID,
+					Status:    200,
+					BodyB64:   base64.StdEncoding.EncodeToString([]byte("ok")),
+				})
+			}
+		}
+	}()
+
+	// Exact match: /api
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api", nil)
+	req.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+	r, _ := http.DefaultClient.Do(req)
+	r.Body.Close()
+	if r.StatusCode != 200 {
+		t.Fatalf("/api exact: expected 200, got %d", r.StatusCode)
+	}
+
+	// Prefix match: /api/v1
+	req2, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/v1", nil)
+	req2.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+	r2, _ := http.DefaultClient.Do(req2)
+	r2.Body.Close()
+	if r2.StatusCode != 200 {
+		t.Fatalf("/api/v1: expected 200, got %d", r2.StatusCode)
+	}
+
+	// Not a prefix: /api-v2 should be blocked
+	req3, _ := http.NewRequest(http.MethodGet, ts.URL+"/api-v2", nil)
+	req3.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+	r3, _ := http.DefaultClient.Do(req3)
+	r3.Body.Close()
+	if r3.StatusCode != http.StatusForbidden {
+		t.Fatalf("/api-v2: expected 403, got %d", r3.StatusCode)
+	}
+}
+
+// --- header forwarding: Cookie, custom headers, multi-value headers ---
+
+func TestPublicHTTPHeaderForwarding(t *testing.T) {
+	s, ts := newTestServer()
+	defer ts.Close()
+
+	session := createSession(t, ts.URL)
+	conn := dialSDKWS(t, ts.URL, session)
+	defer conn.Close()
+	time.Sleep(50 * time.Millisecond)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var req tunnelMessage
+		if err := conn.ReadJSON(&req); err != nil {
+			return
+		}
+
+		// Verify Cookie header is forwarded
+		cookies := req.Headers["cookie"]
+		if len(cookies) == 0 {
+			t.Errorf("cookie header not forwarded")
+		} else if !strings.Contains(cookies[0], "session_id=abc123") {
+			t.Errorf("expected session_id=abc123 in cookie, got %v", cookies)
+		}
+
+		// Verify custom header
+		custom := req.Headers["x-custom-header"]
+		if len(custom) == 0 || custom[0] != "custom-value" {
+			t.Errorf("x-custom-header not forwarded correctly, got %v", custom)
+		}
+
+		// Verify Authorization header
+		auth := req.Headers["authorization"]
+		if len(auth) == 0 || auth[0] != "Bearer my-token" {
+			t.Errorf("authorization header not forwarded correctly, got %v", auth)
+		}
+
+		// Verify Accept header with multiple values
+		accept := req.Headers["accept"]
+		if len(accept) == 0 {
+			t.Errorf("accept header not forwarded")
+		}
+
+		// Respond with custom response headers including Set-Cookie
+		resp := tunnelMessage{
+			Type:      "response",
+			RequestID: req.RequestID,
+			Status:    200,
+			Headers: map[string][]string{
+				"content-type":           {"application/json"},
+				"x-response-custom":      {"resp-value"},
+				"set-cookie":             {"token=xyz; Path=/", "lang=en; Path=/"},
+				"x-multi-value":          {"val1", "val2"},
+				"cache-control":          {"no-cache, no-store"},
+			},
+			BodyB64: base64.StdEncoding.EncodeToString([]byte(`{"ok":true}`)),
+		}
+		_ = conn.WriteJSON(resp)
+	}()
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/header-test", nil)
+	req.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+	req.Header.Set("Cookie", "session_id=abc123; theme=dark")
+	req.Header.Set("X-Custom-Header", "custom-value")
+	req.Header.Set("Authorization", "Bearer my-token")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Add("Accept", "text/html")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d body=%s", resp.StatusCode, string(body))
+	}
+
+	// Verify response headers are forwarded back
+	if v := resp.Header.Get("X-Response-Custom"); v != "resp-value" {
+		t.Errorf("x-response-custom not forwarded in response, got %q", v)
+	}
+
+	setCookies := resp.Header.Values("Set-Cookie")
+	if len(setCookies) < 2 {
+		t.Errorf("expected 2 Set-Cookie headers, got %d: %v", len(setCookies), setCookies)
+	}
+
+	multiVals := resp.Header.Values("X-Multi-Value")
+	if len(multiVals) < 2 {
+		t.Errorf("expected 2 X-Multi-Value headers, got %d: %v", len(multiVals), multiVals)
+	}
+
+	if v := resp.Header.Get("Cache-Control"); v != "no-cache, no-store" {
+		t.Errorf("cache-control not forwarded, got %q", v)
+	}
+
+	<-done
+}
+
 // --- X-Forwarded headers are set correctly ---
 
 func TestPublicHTTPForwardedHeaders(t *testing.T) {
@@ -657,4 +933,84 @@ func TestPublicHTTPForwardedHeaders(t *testing.T) {
 	}
 
 	<-done
+}
+
+// --- SDK reconnect: same session survives WS disconnect + reconnect ---
+
+func TestSDKReconnectSameSession(t *testing.T) {
+	s, ts := newTestServer()
+	defer ts.Close()
+
+	session := createSession(t, ts.URL)
+	conn1 := dialSDKWS(t, ts.URL, session)
+
+	// Verify forwarding works on first connection
+	done1 := make(chan struct{})
+	go func() {
+		defer close(done1)
+		var req tunnelMessage
+		if err := conn1.ReadJSON(&req); err != nil {
+			return
+		}
+		_ = conn1.WriteJSON(tunnelMessage{
+			Type:      "response",
+			RequestID: req.RequestID,
+			Status:    200,
+			Headers:   map[string][]string{"content-type": {"text/plain"}},
+			BodyB64:   base64.StdEncoding.EncodeToString([]byte("first-conn")),
+		})
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	req1, _ := http.NewRequest(http.MethodGet, ts.URL+"/before-reconnect", nil)
+	req1.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+	resp1, err := http.DefaultClient.Do(req1)
+	if err != nil {
+		t.Fatalf("first request failed: %v", err)
+	}
+	body1, _ := io.ReadAll(resp1.Body)
+	resp1.Body.Close()
+	if resp1.StatusCode != 200 || string(body1) != "first-conn" {
+		t.Fatalf("first request: status=%d body=%s", resp1.StatusCode, body1)
+	}
+	<-done1
+
+	// Close the first WS connection (simulate network drop)
+	conn1.Close()
+	time.Sleep(100 * time.Millisecond)
+
+	// Reconnect with same session and token
+	conn2 := dialSDKWS(t, ts.URL, session)
+	defer conn2.Close()
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify forwarding works on second connection
+	done2 := make(chan struct{})
+	go func() {
+		defer close(done2)
+		var req tunnelMessage
+		if err := conn2.ReadJSON(&req); err != nil {
+			return
+		}
+		_ = conn2.WriteJSON(tunnelMessage{
+			Type:      "response",
+			RequestID: req.RequestID,
+			Status:    200,
+			Headers:   map[string][]string{"content-type": {"text/plain"}},
+			BodyB64:   base64.StdEncoding.EncodeToString([]byte("second-conn")),
+		})
+	}()
+
+	req2, _ := http.NewRequest(http.MethodGet, ts.URL+"/after-reconnect", nil)
+	req2.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("second request failed: %v", err)
+	}
+	body2, _ := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+	if resp2.StatusCode != 200 || string(body2) != "second-conn" {
+		t.Fatalf("second request after reconnect: status=%d body=%s", resp2.StatusCode, body2)
+	}
+	<-done2
 }

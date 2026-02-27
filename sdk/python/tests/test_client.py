@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import websockets
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from godemo.client import (
@@ -367,7 +369,10 @@ class CliHelpTests(unittest.TestCase):
                     except (KeyboardInterrupt, SystemExit):
                         pass
                 expose_mock.assert_called_once_with(
-                    port=3000, gateway_url="http://test.gw", local_host="127.0.0.1"
+                    port=3000,
+                    gateway_url="http://test.gw",
+                    local_host="127.0.0.1",
+                    allowed_paths=None,
                 )
 
     def test_cli_custom_host(self) -> None:
@@ -384,7 +389,33 @@ class CliHelpTests(unittest.TestCase):
                     except (KeyboardInterrupt, SystemExit):
                         pass
                 expose_mock.assert_called_once_with(
-                    port=8000, gateway_url=None, local_host="0.0.0.0"
+                    port=8000,
+                    gateway_url=None,
+                    local_host="0.0.0.0",
+                    allowed_paths=None,
+                )
+
+    def test_cli_with_allow_path(self) -> None:
+        tunnel_mock = mock.MagicMock()
+        tunnel_mock.public_url = "https://qs-test.example.com"
+
+        with mock.patch(
+            "sys.argv",
+            ["godemo", "3000", "--allow-path", "/api", "--allow-path", "/health"],
+        ):
+            with mock.patch(
+                "godemo.client.expose", return_value=tunnel_mock
+            ) as expose_mock:
+                with mock.patch("signal.pause", side_effect=KeyboardInterrupt):
+                    try:
+                        run_cli()
+                    except (KeyboardInterrupt, SystemExit):
+                        pass
+                expose_mock.assert_called_once_with(
+                    port=3000,
+                    gateway_url=None,
+                    local_host="127.0.0.1",
+                    allowed_paths=["/api", "/health"],
                 )
 
     def test_cli_signal_pause_fallback(self) -> None:
@@ -652,6 +683,64 @@ class CreateSessionTests(unittest.TestCase):
         self.assertEqual(session.token, "tok_xyz")
         self.assertEqual(session.public_url, "http://dm-abc.localhost")
 
+    def test_create_session_sends_allowed_paths(self) -> None:
+        tunnel = Tunnel(
+            local_port=8080,
+            gateway_url="http://gw.test",
+            allowed_paths=["/api", "/health"],
+        )
+
+        mock_resp = mock.MagicMock()
+        mock_resp.status_code = 201
+        mock_resp.raise_for_status = mock.MagicMock()
+        mock_resp.json.return_value = {
+            "session_id": "ses_wl",
+            "token": "tok_wl",
+            "public_url": "http://dm-wl.localhost",
+            "ws_endpoint": "ws://gw.test/api/v1/tunnel/ws?session_id=ses_wl",
+        }
+
+        with mock.patch("godemo.client.httpx.AsyncClient") as client_cls:
+            client_instance = mock.AsyncMock()
+            client_cls.return_value.__aenter__ = mock.AsyncMock(
+                return_value=client_instance
+            )
+            client_cls.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+            client_instance.post.return_value = mock_resp
+
+            asyncio.run(tunnel._create_session())
+
+        call_kwargs = client_instance.post.call_args
+        sent_json = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+        self.assertEqual(sent_json["allowed_paths"], ["/api", "/health"])
+
+    def test_create_session_omits_allowed_paths_when_empty(self) -> None:
+        tunnel = Tunnel(local_port=8080, gateway_url="http://gw.test")
+
+        mock_resp = mock.MagicMock()
+        mock_resp.status_code = 201
+        mock_resp.raise_for_status = mock.MagicMock()
+        mock_resp.json.return_value = {
+            "session_id": "ses_no_wl",
+            "token": "tok_no_wl",
+            "public_url": "http://dm-no-wl.localhost",
+            "ws_endpoint": "ws://gw.test/api/v1/tunnel/ws?session_id=ses_no_wl",
+        }
+
+        with mock.patch("godemo.client.httpx.AsyncClient") as client_cls:
+            client_instance = mock.AsyncMock()
+            client_cls.return_value.__aenter__ = mock.AsyncMock(
+                return_value=client_instance
+            )
+            client_cls.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+            client_instance.post.return_value = mock_resp
+
+            asyncio.run(tunnel._create_session())
+
+        call_kwargs = client_instance.post.call_args
+        sent_json = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+        self.assertNotIn("allowed_paths", sent_json)
+
 
 # ---------------------------------------------------------------------------
 # _wait_for_port
@@ -739,6 +828,133 @@ class EventLoopEdgeCaseTests(unittest.TestCase):
         self.assertTrue(len(sent) > 0)
         parsed = json.loads(sent[0])
         self.assertEqual(parsed["type"], "pong")
+
+
+class ReconnectTests(unittest.TestCase):
+    def test_reconnect_on_ws_disconnect(self) -> None:
+        """Verify _run reconnects after the WS connection drops."""
+        tunnel = Tunnel(local_port=8080, gateway_url="http://gw.test")
+
+        mock_session_resp = mock.MagicMock()
+        mock_session_resp.status_code = 201
+        mock_session_resp.raise_for_status = mock.MagicMock()
+        mock_session_resp.json.return_value = {
+            "session_id": "ses_rc",
+            "token": "tok_rc",
+            "public_url": "http://dm-rc.localhost",
+            "ws_endpoint": "ws://gw.test/api/v1/tunnel/ws?session_id=ses_rc",
+        }
+
+        connect_count = 0
+
+        class FakeWS:
+            def __init__(self) -> None:
+                self.sent: list[str] = []
+
+            async def send(self, data: str) -> None:
+                self.sent.append(data)
+
+            async def recv(self) -> str:
+                nonlocal connect_count
+                if connect_count == 1:
+                    raise websockets.ConnectionClosedError(None, None)
+                # Second connection: wait until stop
+                while not tunnel._stop_flag.is_set():
+                    await asyncio.sleep(0.05)
+                raise websockets.ConnectionClosedOK(None, None)
+
+            async def close(self) -> None:
+                pass
+
+            async def __aenter__(self) -> "FakeWS":
+                nonlocal connect_count
+                connect_count += 1
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                pass
+
+        with mock.patch("godemo.client.httpx.AsyncClient") as client_cls:
+            client_instance = mock.AsyncMock()
+            client_cls.return_value.__aenter__ = mock.AsyncMock(
+                return_value=client_instance
+            )
+            client_cls.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+            client_instance.post.return_value = mock_session_resp
+            client_instance.delete = mock.AsyncMock()
+
+            with mock.patch("godemo.client.websockets.connect", return_value=FakeWS()):
+
+                async def run_and_stop() -> None:
+                    task = asyncio.create_task(tunnel._run())
+                    # Wait for second connection
+                    for _ in range(100):
+                        if connect_count >= 2:
+                            break
+                        await asyncio.sleep(0.05)
+                    tunnel._stop_flag.set()
+                    await task
+
+                asyncio.run(run_and_stop())
+
+        self.assertGreaterEqual(
+            connect_count, 2, "should have reconnected at least once"
+        )
+
+    def test_reconnect_stops_on_stop_flag(self) -> None:
+        """Verify _run exits when stop_flag is set during backoff."""
+        tunnel = Tunnel(local_port=8080, gateway_url="http://gw.test")
+
+        mock_session_resp = mock.MagicMock()
+        mock_session_resp.status_code = 201
+        mock_session_resp.raise_for_status = mock.MagicMock()
+        mock_session_resp.json.return_value = {
+            "session_id": "ses_stop",
+            "token": "tok_stop",
+            "public_url": "http://dm-stop.localhost",
+            "ws_endpoint": "ws://gw.test/api/v1/tunnel/ws?session_id=ses_stop",
+        }
+
+        connect_count = 0
+
+        class FailingConnect:
+            """Async context manager that always raises on __aenter__."""
+
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                nonlocal connect_count
+                connect_count += 1
+
+            async def __aenter__(self) -> None:
+                raise ConnectionRefusedError("connection refused")
+
+            async def __aexit__(self, *args: object) -> None:
+                pass
+
+        with mock.patch("godemo.client.httpx.AsyncClient") as client_cls:
+            client_instance = mock.AsyncMock()
+            client_cls.return_value.__aenter__ = mock.AsyncMock(
+                return_value=client_instance
+            )
+            client_cls.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+            client_instance.post.return_value = mock_session_resp
+            client_instance.delete = mock.AsyncMock()
+
+            with mock.patch(
+                "godemo.client.websockets.connect", side_effect=FailingConnect
+            ):
+
+                async def run_and_stop() -> None:
+                    task = asyncio.create_task(tunnel._run())
+                    for _ in range(50):
+                        if connect_count >= 2:
+                            break
+                        await asyncio.sleep(0.05)
+                    tunnel._stop_flag.set()
+                    await asyncio.wait_for(task, timeout=5)
+
+                asyncio.run(run_and_stop())
+
+        self.assertGreaterEqual(connect_count, 2)
 
 
 if __name__ == "__main__":

@@ -14,6 +14,14 @@ import (
 
 var verbose bool
 
+type multiFlag []string
+
+func (f *multiFlag) String() string { return strings.Join(*f, ", ") }
+func (f *multiFlag) Set(value string) error {
+	*f = append(*f, value)
+	return nil
+}
+
 func logInfo(format string, args ...any) {
 	ts := time.Now().Format("15:04:05")
 	fmt.Fprintf(os.Stderr, ts+" [godemo] "+format+"\n", args...)
@@ -44,6 +52,9 @@ func main() {
 	hostFlag := flag.String("host", "127.0.0.1", "Local bind host")
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose logging")
 	flag.BoolVar(verboseFlag, "v", false, "Enable verbose logging (shorthand)")
+	var allowPaths multiFlag
+	flag.Var(&allowPaths, "allow-path", "Only allow requests to this path prefix (repeatable)")
+
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: godemo-client [flags] <port>\n\n")
@@ -80,6 +91,9 @@ func main() {
 	defer cancel()
 
 	t := newTunnel(gatewayURL, *hostFlag, port)
+	if len(allowPaths) > 0 {
+		t.allowedPaths = allowPaths
+	}
 
 	if err := t.createSession(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -95,6 +109,9 @@ func main() {
 	fmt.Fprintf(os.Stdout, "\n  godemo tunnel active\n\n")
 	fmt.Fprintf(os.Stdout, "  Public URL:  %s\n", t.publicURL)
 	fmt.Fprintf(os.Stdout, "  Forwarding:  %s:%d\n", *hostFlag, port)
+	if len(allowPaths) > 0 {
+		fmt.Fprintf(os.Stdout, "  Allowed:     %s\n", strings.Join(allowPaths, ", "))
+	}
 	fmt.Fprintf(os.Stdout, "\n  Press Ctrl+C to stop.\n\n")
 
 	sigCh := make(chan os.Signal, 1)
@@ -102,7 +119,7 @@ func main() {
 
 	doneCh := make(chan struct{})
 	go func() {
-		t.eventLoop(ctx)
+		t.runWithReconnect(ctx)
 		close(doneCh)
 	}()
 

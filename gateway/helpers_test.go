@@ -358,6 +358,34 @@ func TestSanitizeQuery(t *testing.T) {
 	}
 }
 
+func TestPathAllowed(t *testing.T) {
+	cases := []struct {
+		name    string
+		allowed []string
+		path    string
+		want    bool
+	}{
+		{"empty allows all", nil, "/anything", true},
+		{"exact match", []string{"/api"}, "/api", true},
+		{"prefix match", []string{"/api"}, "/api/users", true},
+		{"no partial match", []string{"/api"}, "/api-v2", false},
+		{"root blocked", []string{"/api"}, "/", false},
+		{"multiple prefixes", []string{"/api", "/health"}, "/health", true},
+		{"multiple prefixes blocked", []string{"/api", "/health"}, "/admin", false},
+		{"nested prefix", []string{"/api/v1"}, "/api/v1/users", true},
+		{"nested prefix parent blocked", []string{"/api/v1"}, "/api/v2", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &tunnelSession{allowedPaths: tc.allowed}
+			got := s.pathAllowed(tc.path)
+			if got != tc.want {
+				t.Errorf("pathAllowed(%q) with allowed=%v: got %v, want %v", tc.path, tc.allowed, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDecIPSessionCount(t *testing.T) {
 	s := &server{ipSessionNum: map[string]int{"1.2.3.4": 3, "5.6.7.8": 1}}
 	s.decIPSessionCount("1.2.3.4")

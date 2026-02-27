@@ -48,9 +48,10 @@ type tunnelMessage struct {
 }
 
 type createSessionRequest struct {
-	TTLSeconds  int    `json:"ttl_seconds"`
-	Fingerprint string `json:"fingerprint,omitempty"`
-	Port        int    `json:"port,omitempty"`
+	TTLSeconds   int      `json:"ttl_seconds"`
+	Fingerprint  string   `json:"fingerprint,omitempty"`
+	Port         int      `json:"port,omitempty"`
+	AllowedPaths []string `json:"allowed_paths,omitempty"`
 }
 
 type createSessionResponse struct {

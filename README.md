@@ -26,6 +26,33 @@ Output:
 
 Anyone on the internet can now reach your local `:3000` via the public URL.
 
+### Path Whitelist
+
+Restrict which paths are accessible through the tunnel. Requests to non-whitelisted paths
+receive a `403 Forbidden` response from the gateway — they never reach your local server.
+
+```bash
+godemo 3000 --allow-path /api --allow-path /health
+```
+
+Output:
+
+```
+  godemo tunnel active
+
+  Public URL:  https://dm-7f3a1b2c.0x0f.me
+  Forwarding:  127.0.0.1:3000
+  Allowed:     /api, /health
+
+  Press Ctrl+C to stop.
+```
+
+- `/api`, `/api/users`, `/api/v1/data` — allowed (prefix match)
+- `/health` — allowed (exact match)
+- `/admin`, `/`, `/api-v2` — blocked with 403
+
+If `--allow-path` is omitted, all paths are allowed (default behavior).
+
 ## Go Client (Binary)
 
 Download a pre-built binary from [GitHub Releases](https://github.com/bitxel/godemo/releases)
@@ -49,7 +76,7 @@ chmod +x godemo-client
 ### Go Client CLI
 
 ```bash
-godemo-client <port> [--gateway URL] [--host HOST] [--verbose]
+godemo-client <port> [--gateway URL] [--host HOST] [--allow-path PATH ...] [--verbose]
 ```
 
 | Flag | Default | Description |
@@ -57,6 +84,7 @@ godemo-client <port> [--gateway URL] [--host HOST] [--verbose]
 | `port` | (required) | Local port to expose |
 | `--gateway`, `-g` | `$GODEMO_GATEWAY_URL` or `https://godemo.0x0f.me` | Gateway URL |
 | `--host` | `127.0.0.1` | Local bind host |
+| `--allow-path` | (all paths) | Restrict to path prefix (repeatable) |
 | `--verbose`, `-v` | off | Enable debug logging |
 
 ## Python SDK
@@ -101,7 +129,7 @@ and starts a local server automatically. Requires `pip install godemo[asgi]` or 
 
 ### API Reference
 
-#### `godemo.expose(port, gateway_url=None, local_host="127.0.0.1", request_timeout_seconds=20.0) -> Tunnel`
+#### `godemo.expose(port, gateway_url=None, local_host="127.0.0.1", request_timeout_seconds=20.0, allowed_paths=None) -> Tunnel`
 
 Create a tunnel to a local port that is already listening.
 
@@ -111,6 +139,7 @@ Create a tunnel to a local port that is already listening.
 | `gateway_url` | `str \| None` | `$GODEMO_GATEWAY_URL` or `https://godemo.0x0f.me` | Gateway URL |
 | `local_host` | `str` | `"127.0.0.1"` | Local bind host |
 | `request_timeout_seconds` | `float` | `20.0` | Timeout for local HTTP requests |
+| `allowed_paths` | `list[str] \| None` | `None` (all paths) | Restrict to these path prefixes |
 
 #### `godemo.share_app(app, host="127.0.0.1", port=0, gateway_url=None, request_timeout_seconds=20.0) -> Tunnel`
 
@@ -128,7 +157,7 @@ Start a local server for a WSGI/ASGI app and create a tunnel.
 ### CLI
 
 ```bash
-godemo <port> [--gateway URL] [--host HOST]
+godemo <port> [--gateway URL] [--host HOST] [--allow-path PATH ...]
 ```
 
 | Flag | Default | Description |
@@ -136,6 +165,7 @@ godemo <port> [--gateway URL] [--host HOST]
 | `port` | (required) | Local port to expose |
 | `--gateway` | `$GODEMO_GATEWAY_URL` or `https://godemo.0x0f.me` | Gateway URL |
 | `--host` | `127.0.0.1` | Local bind host |
+| `--allow-path` | (all paths) | Restrict to path prefix (repeatable) |
 
 The CLI can also be invoked as `python -m godemo`.
 
