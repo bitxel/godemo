@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "demoit"
+name = "godemo"
 version = "0.1.0"
-description = "Expose local HTTP/WebSocket services via Demoit gateway."
+description = "Expose local HTTP/WebSocket services via Godemo gateway."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -18,7 +18,7 @@ asgi = ["uvicorn>=0.29.0"]
 wsgi = ["werkzeug>=3.0.0"]
 
 [project.scripts]
-demoit = "demoit:run_cli"
+godemo = "godemo:run_cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]

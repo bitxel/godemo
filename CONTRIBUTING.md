@@ -1,6 +1,6 @@
-# Contributing to demoit
+# Contributing to godemo
 
-Thanks for contributing to `demoit`.
+Thanks for contributing to `godemo`.
 
 ## Development Setup
 
@@ -40,7 +40,7 @@ python3 -m unittest discover -s tests
 - Create a version tag like `v0.2.0`.
 - Push the tag to trigger `.github/workflows/release.yml`.
 - The workflow builds:
-  - `demoit-gateway` linux binary
+  - `godemo-gateway` linux binary
   - Python source distribution and wheel
 - Maintainers can then review and publish the generated GitHub Release.
 

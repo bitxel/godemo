@@ -18,7 +18,7 @@ import httpx
 import websockets
 from websockets.client import WebSocketClientProtocol
 
-DEFAULT_GATEWAY_URL = os.environ.get("DEMOIT_GATEWAY_URL", "https://demoit.0x0f.me")
+DEFAULT_GATEWAY_URL = os.environ.get("GODEMO_GATEWAY_URL", "https://godemo.0x0f.me")
 
 
 def _machine_fingerprint() -> str:
@@ -42,7 +42,7 @@ class _LocalWSBridge:
 
 class Tunnel:
     """
-    Long-lived demoit tunnel process.
+    Long-lived godemo tunnel process.
     """
 
     def __init__(
@@ -69,13 +69,13 @@ class Tunnel:
     def start(self) -> "Tunnel":
         if self._thread is not None and self._thread.is_alive():
             return self
-        self._thread = threading.Thread(target=self._run_in_thread, name="demoit-tunnel", daemon=True)
+        self._thread = threading.Thread(target=self._run_in_thread, name="godemo-tunnel", daemon=True)
         self._thread.start()
         self._started.wait(timeout=15)
         if self._startup_error:
             raise self._startup_error
         if not self.public_url:
-            raise RuntimeError("demoit tunnel failed to start")
+            raise RuntimeError("godemo tunnel failed to start")
         return self
 
     def close(self) -> None:
@@ -149,7 +149,7 @@ class Tunnel:
                 elif msg_type == "ping":
                     await self._ws_send(ws, {"type": "pong"})
                 elif msg_type == "error":
-                    print(f"[demoit] gateway error: {msg.get('message', 'unknown')}")
+                    print(f"[godemo] gateway error: {msg.get('message', 'unknown')}")
         finally:
             for bridge in local_ws_bridges.values():
                 await bridge.local_ws.close()
@@ -321,7 +321,7 @@ def expose(
 ) -> Tunnel:
     """
     One-line entrypoint:
-        tunnel = demoit.expose(8000)
+        tunnel = godemo.expose(8000)
     """
     tunnel = Tunnel(
         local_port=port,
@@ -348,7 +348,7 @@ def expose_app(
 
     Example:
         from fastapi import FastAPI
-        import demoit
+        import godemo
 
         app = FastAPI()
 
@@ -356,7 +356,7 @@ def expose_app(
         def root():
             return {"hello": "world"}
 
-        tunnel = demoit.expose_app(app)
+        tunnel = godemo.expose_app(app)
         print(tunnel.public_url)
     """
     import socket
@@ -388,7 +388,7 @@ def expose_app(
             srv = make_server(host, port, app)
             srv.serve_forever()
 
-    server_thread = _threading.Thread(target=_run_server, daemon=True, name="demoit-app-server")
+    server_thread = _threading.Thread(target=_run_server, daemon=True, name="godemo-app-server")
     server_thread.start()
 
     _wait_for_port(host, port)
@@ -440,20 +440,20 @@ def _looks_like_asgi(app: Any) -> bool:
 
 def run_cli() -> None:
     """
-    CLI entrypoint for: python -m demoit 3000
-    or: demoit 3000
+    CLI entrypoint for: python -m godemo 3000
+    or: godemo 3000
     """
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="demoit",
-        description="Expose a local port to the internet via Demoit gateway.",
+        prog="godemo",
+        description="Expose a local port to the internet via Godemo gateway.",
     )
     parser.add_argument("port", type=int, help="Local port to expose (e.g. 3000)")
     parser.add_argument(
         "--gateway",
         default=None,
-        help=f"Gateway URL (default: $DEMOIT_GATEWAY_URL or {DEFAULT_GATEWAY_URL})",
+        help=f"Gateway URL (default: $GODEMO_GATEWAY_URL or {DEFAULT_GATEWAY_URL})",
     )
     parser.add_argument("--host", default="127.0.0.1", help="Local bind host (default: 127.0.0.1)")
 
@@ -461,7 +461,7 @@ def run_cli() -> None:
 
     tunnel = expose(port=args.port, gateway_url=args.gateway, local_host=args.host)
 
-    print(f"\n  demoit tunnel active\n")
+    print(f"\n  godemo tunnel active\n")
     print(f"  Public URL:  {tunnel.public_url}")
     print(f"  Forwarding:  {args.host}:{args.port}")
     print(f"\n  Press Ctrl+C to stop.\n")

@@ -1,6 +1,6 @@
 # Gateway Deployment Guide
 
-This guide covers deploying the `demoit-gateway` binary behind a reverse proxy with TLS.
+This guide covers deploying the `godemo-gateway` binary behind a reverse proxy with TLS.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ This guide covers deploying the `demoit-gateway` binary behind a reverse proxy w
 
 ```bash
 cd gateway
-go build -o demoit-gateway .
+go build -o godemo-gateway .
 ```
 
 ## 2. DNS Records
@@ -99,8 +99,8 @@ Caddy handles TLS and WebSocket upgrades automatically.
 ## 6. Gateway Environment Variables
 
 ```bash
-export DEMOIT_ROOT_DOMAIN=0x0f.me
-export DEMOIT_ADDR=:8080
+export GODEMO_ROOT_DOMAIN=0x0f.me
+export GODEMO_ADDR=:8080
 ```
 
 See the main [README](../README.md#gateway-environment-variables) for the full list.
@@ -108,21 +108,21 @@ See the main [README](../README.md#gateway-environment-variables) for the full l
 ## 7. Run
 
 ```bash
-DEMOIT_ROOT_DOMAIN=0x0f.me ./demoit-gateway
+GODEMO_ROOT_DOMAIN=0x0f.me ./godemo-gateway
 ```
 
 For production, use systemd or a process manager:
 
 ```ini
-# /etc/systemd/system/demoit-gateway.service
+# /etc/systemd/system/godemo-gateway.service
 [Unit]
-Description=Demoit Gateway
+Description=Godemo Gateway
 After=network.target
 
 [Service]
-ExecStart=/opt/demoit/demoit-gateway
-Environment=DEMOIT_ROOT_DOMAIN=0x0f.me
-Environment=DEMOIT_ADDR=:8080
+ExecStart=/opt/godemo/godemo-gateway
+Environment=GODEMO_ROOT_DOMAIN=0x0f.me
+Environment=GODEMO_ADDR=:8080
 Restart=always
 RestartSec=3
 
@@ -131,7 +131,7 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable --now demoit-gateway
+sudo systemctl enable --now godemo-gateway
 ```
 
 ## 8. Verify
@@ -141,11 +141,11 @@ sudo systemctl enable --now demoit-gateway
 curl -v http://0x0f.me 2>&1 | grep -E "301|Location"
 
 # 2. API health
-curl -i https://demoit.0x0f.me/api/healthz
+curl -i https://godemo.0x0f.me/api/healthz
 
 # 3. Full end-to-end test
-pip install demoit
-demoit 3000 --gateway https://demoit.0x0f.me
+pip install godemo
+godemo 3000 --gateway https://godemo.0x0f.me
 ```
 
 ## Client Quick Start
@@ -153,6 +153,6 @@ demoit 3000 --gateway https://demoit.0x0f.me
 Users can expose a local port with:
 
 ```bash
-pip install demoit
-demoit 3000 --gateway https://demoit.0x0f.me
+pip install godemo
+godemo 3000 --gateway https://godemo.0x0f.me
 ```

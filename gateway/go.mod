@@ -1,4 +1,4 @@
-module demoit/gateway
+module godemo/gateway
 
 go 1.22
 

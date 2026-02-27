@@ -26,7 +26,7 @@ jobs:
         run: |
           mkdir -p dist
           cd gateway
-          GOOS=linux GOARCH=amd64 go build -o ../dist/demoit-gateway-linux-amd64 .
+          GOOS=linux GOARCH=amd64 go build -o ../dist/godemo-gateway-linux-amd64 .
 
       - name: Setup Python
         uses: actions/setup-python@v5

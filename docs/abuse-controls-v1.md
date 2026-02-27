@@ -18,8 +18,8 @@ This document defines baseline anti-abuse controls for the managed public gatewa
 
 ## Blocking Controls
 
-- Static deny list: `DEMOIT_DENY_IPS`
-- Optional allow list mode: `DEMOIT_ALLOW_IPS`
+- Static deny list: `GODEMO_DENY_IPS`
+- Optional allow list mode: `GODEMO_ALLOW_IPS`
 
 ## 429 Strategy
 

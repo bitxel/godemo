@@ -35,7 +35,7 @@ def _go_available() -> bool:
 
 
 def _build_gateway() -> Path:
-    binary = GATEWAY_DIR / "demoit-gateway-test"
+    binary = GATEWAY_DIR / "godemo-gateway-test"
     subprocess.check_call(
         ["go", "build", "-o", str(binary), "."],
         cwd=str(GATEWAY_DIR),
@@ -100,8 +100,8 @@ class IntegrationTests(unittest.TestCase):
             [str(cls.gateway_binary)],
             env={
                 **os.environ,
-                "DEMOIT_ADDR": f":{cls.gateway_port}",
-                "DEMOIT_ROOT_DOMAIN": "localhost",
+                "GODEMO_ADDR": f":{cls.gateway_port}",
+                "GODEMO_ROOT_DOMAIN": "localhost",
             },
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -126,7 +126,7 @@ class IntegrationTests(unittest.TestCase):
             cls.gateway_proc.wait(timeout=5)
         if cls.local_server:
             cls.local_server.shutdown()
-        binary = GATEWAY_DIR / "demoit-gateway-test"
+        binary = GATEWAY_DIR / "godemo-gateway-test"
         if binary.exists():
             binary.unlink()
 
@@ -157,7 +157,7 @@ class IntegrationTests(unittest.TestCase):
     def test_tunnel_end_to_end(self) -> None:
         """Full test: create tunnel via SDK, send HTTP through it, verify response."""
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-        from demoit.client import Tunnel
+        from godemo.client import Tunnel
 
         gateway_url = f"http://127.0.0.1:{self.gateway_port}"
         tunnel = Tunnel(

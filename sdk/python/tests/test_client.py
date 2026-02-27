@@ -7,7 +7,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from demoit.client import (
+from godemo.client import (
     Tunnel,
     expose,
     expose_app,
@@ -29,7 +29,7 @@ class DefaultGatewayTests(unittest.TestCase):
         self.assertTrue(DEFAULT_GATEWAY_URL.startswith("http"))
 
     def test_expose_uses_default_gateway(self) -> None:
-        with mock.patch("demoit.client.Tunnel") as MockTunnel:
+        with mock.patch("godemo.client.Tunnel") as MockTunnel:
             instance = mock.MagicMock()
             instance.start.return_value = instance
             MockTunnel.return_value = instance
@@ -40,15 +40,15 @@ class DefaultGatewayTests(unittest.TestCase):
 
     def test_default_gateway_url_env_override(self) -> None:
         import importlib
-        from demoit import client as client_mod
+        from godemo import client as client_mod
         original = client_mod.DEFAULT_GATEWAY_URL
         try:
-            with mock.patch.dict(os.environ, {"DEMOIT_GATEWAY_URL": "https://custom.example.com"}):
+            with mock.patch.dict(os.environ, {"GODEMO_GATEWAY_URL": "https://custom.example.com"}):
                 importlib.reload(client_mod)
                 self.assertEqual(client_mod.DEFAULT_GATEWAY_URL, "https://custom.example.com")
         finally:
             with mock.patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("DEMOIT_GATEWAY_URL", None)
+                os.environ.pop("GODEMO_GATEWAY_URL", None)
                 importlib.reload(client_mod)
 
 
@@ -85,7 +85,7 @@ class TunnelConstructionTests(unittest.TestCase):
 
 class ExposeTests(unittest.TestCase):
     def test_expose_starts_tunnel(self) -> None:
-        with mock.patch("demoit.client.Tunnel") as MockTunnel:
+        with mock.patch("godemo.client.Tunnel") as MockTunnel:
             instance = mock.MagicMock()
             instance.start.return_value = instance
             MockTunnel.return_value = instance
@@ -94,7 +94,7 @@ class ExposeTests(unittest.TestCase):
             self.assertIs(result, instance)
 
     def test_expose_passes_custom_params(self) -> None:
-        with mock.patch("demoit.client.Tunnel") as MockTunnel:
+        with mock.patch("godemo.client.Tunnel") as MockTunnel:
             instance = mock.MagicMock()
             instance.start.return_value = instance
             MockTunnel.return_value = instance
@@ -286,13 +286,13 @@ class SessionInfoTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class CliHelpTests(unittest.TestCase):
     def test_cli_help_exits_zero(self) -> None:
-        with mock.patch("sys.argv", ["demoit", "--help"]):
+        with mock.patch("sys.argv", ["godemo", "--help"]):
             with self.assertRaises(SystemExit) as ctx:
                 run_cli()
             self.assertEqual(ctx.exception.code, 0)
 
     def test_cli_missing_port_exits_nonzero(self) -> None:
-        with mock.patch("sys.argv", ["demoit"]):
+        with mock.patch("sys.argv", ["godemo"]):
             with self.assertRaises(SystemExit) as ctx:
                 run_cli()
             self.assertNotEqual(ctx.exception.code, 0)
@@ -301,8 +301,8 @@ class CliHelpTests(unittest.TestCase):
         tunnel_mock = mock.MagicMock()
         tunnel_mock.public_url = "https://qs-test.example.com"
 
-        with mock.patch("sys.argv", ["demoit", "3000", "--gateway", "http://test.gw"]):
-            with mock.patch("demoit.client.expose", return_value=tunnel_mock) as expose_mock:
+        with mock.patch("sys.argv", ["godemo", "3000", "--gateway", "http://test.gw"]):
+            with mock.patch("godemo.client.expose", return_value=tunnel_mock) as expose_mock:
                 with mock.patch("signal.pause", side_effect=KeyboardInterrupt):
                     try:
                         run_cli()
@@ -316,8 +316,8 @@ class CliHelpTests(unittest.TestCase):
         tunnel_mock = mock.MagicMock()
         tunnel_mock.public_url = "https://qs-test.example.com"
 
-        with mock.patch("sys.argv", ["demoit", "8000", "--host", "0.0.0.0"]):
-            with mock.patch("demoit.client.expose", return_value=tunnel_mock) as expose_mock:
+        with mock.patch("sys.argv", ["godemo", "8000", "--host", "0.0.0.0"]):
+            with mock.patch("godemo.client.expose", return_value=tunnel_mock) as expose_mock:
                 with mock.patch("signal.pause", side_effect=KeyboardInterrupt):
                     try:
                         run_cli()
@@ -334,8 +334,8 @@ class CliHelpTests(unittest.TestCase):
         tunnel_mock._stop_flag = mock.MagicMock()
         tunnel_mock._stop_flag.wait.side_effect = KeyboardInterrupt
 
-        with mock.patch("sys.argv", ["demoit", "3000"]):
-            with mock.patch("demoit.client.expose", return_value=tunnel_mock):
+        with mock.patch("sys.argv", ["godemo", "3000"]):
+            with mock.patch("godemo.client.expose", return_value=tunnel_mock):
                 with mock.patch("signal.pause", side_effect=AttributeError):
                     try:
                         run_cli()
@@ -354,13 +354,13 @@ class ExposeAppTests(unittest.TestCase):
         app = FakeASGI()
         type(app).__module__ = "fastapi.applications"
 
-        with mock.patch("demoit.client._looks_like_asgi", return_value=True):
-            with mock.patch("demoit.client.expose") as expose_mock:
+        with mock.patch("godemo.client._looks_like_asgi", return_value=True):
+            with mock.patch("godemo.client.expose") as expose_mock:
                 expose_mock.return_value = mock.MagicMock(public_url="http://test.url")
                 with mock.patch("threading.Thread") as thread_mock:
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
-                    with mock.patch("demoit.client._wait_for_port"):
+                    with mock.patch("godemo.client._wait_for_port"):
                         result = expose_app(app, gateway_url="http://gw.test")
                         thread_instance.start.assert_called_once()
                         expose_mock.assert_called_once()
@@ -369,13 +369,13 @@ class ExposeAppTests(unittest.TestCase):
         def wsgi_app(environ, start_response):
             pass
 
-        with mock.patch("demoit.client._looks_like_asgi", return_value=False):
-            with mock.patch("demoit.client.expose") as expose_mock:
+        with mock.patch("godemo.client._looks_like_asgi", return_value=False):
+            with mock.patch("godemo.client.expose") as expose_mock:
                 expose_mock.return_value = mock.MagicMock(public_url="http://test.url")
                 with mock.patch("threading.Thread") as thread_mock:
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
-                    with mock.patch("demoit.client._wait_for_port"):
+                    with mock.patch("godemo.client._wait_for_port"):
                         result = expose_app(wsgi_app, gateway_url="http://gw.test")
                         thread_instance.start.assert_called_once()
 
@@ -383,13 +383,13 @@ class ExposeAppTests(unittest.TestCase):
         def wsgi_app(environ, start_response):
             pass
 
-        with mock.patch("demoit.client._looks_like_asgi", return_value=False):
-            with mock.patch("demoit.client.expose") as expose_mock:
+        with mock.patch("godemo.client._looks_like_asgi", return_value=False):
+            with mock.patch("godemo.client.expose") as expose_mock:
                 expose_mock.return_value = mock.MagicMock(public_url="http://test.url")
                 with mock.patch("threading.Thread") as thread_mock:
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
-                    with mock.patch("demoit.client._wait_for_port"):
+                    with mock.patch("godemo.client._wait_for_port"):
                         result = expose_app(wsgi_app, port=0, gateway_url="http://gw.test")
                         call_args = expose_mock.call_args
                         used_port = call_args.kwargs.get("port") or call_args[1].get("port")
@@ -399,13 +399,13 @@ class ExposeAppTests(unittest.TestCase):
         def wsgi_app(environ, start_response):
             pass
 
-        with mock.patch("demoit.client._looks_like_asgi", return_value=False):
-            with mock.patch("demoit.client.expose") as expose_mock:
+        with mock.patch("godemo.client._looks_like_asgi", return_value=False):
+            with mock.patch("godemo.client.expose") as expose_mock:
                 expose_mock.return_value = mock.MagicMock(public_url="http://test.url")
                 with mock.patch("threading.Thread") as thread_mock:
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
-                    with mock.patch("demoit.client._wait_for_port"):
+                    with mock.patch("godemo.client._wait_for_port"):
                         result = expose_app(wsgi_app, port=9999, gateway_url="http://gw.test")
                         call_args = expose_mock.call_args
                         used_port = call_args.kwargs.get("port") or call_args[1].get("port")
@@ -443,17 +443,17 @@ class LocalWSBridgeTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class PackageExportTests(unittest.TestCase):
     def test_top_level_imports(self) -> None:
-        import demoit
-        self.assertTrue(hasattr(demoit, "Tunnel"))
-        self.assertTrue(hasattr(demoit, "expose"))
-        self.assertTrue(hasattr(demoit, "expose_app"))
-        self.assertTrue(hasattr(demoit, "run_cli"))
-        self.assertTrue(hasattr(demoit, "DEFAULT_GATEWAY_URL"))
+        import godemo
+        self.assertTrue(hasattr(godemo, "Tunnel"))
+        self.assertTrue(hasattr(godemo, "expose"))
+        self.assertTrue(hasattr(godemo, "expose_app"))
+        self.assertTrue(hasattr(godemo, "run_cli"))
+        self.assertTrue(hasattr(godemo, "DEFAULT_GATEWAY_URL"))
 
     def test_all_exports(self) -> None:
-        import demoit
+        import godemo
         expected = {"Tunnel", "expose", "expose_app", "run_cli", "DEFAULT_GATEWAY_URL"}
-        self.assertEqual(set(demoit.__all__), expected)
+        self.assertEqual(set(godemo.__all__), expected)
 
 
 # ---------------------------------------------------------------------------
@@ -461,10 +461,10 @@ class PackageExportTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class MainModuleTests(unittest.TestCase):
     def test_main_calls_run_cli(self) -> None:
-        with mock.patch("demoit.client.run_cli") as run_cli_mock:
+        with mock.patch("godemo.client.run_cli") as run_cli_mock:
             run_cli_mock.side_effect = SystemExit(0)
             with self.assertRaises(SystemExit):
-                import demoit.__main__
+                import godemo.__main__
 
 
 if __name__ == "__main__":

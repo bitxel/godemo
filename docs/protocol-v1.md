@@ -1,6 +1,6 @@
-# Demoit Tunnel Protocol V1
+# Godemo Tunnel Protocol V1
 
-This document defines the control/data protocol between `demoit` SDK clients and the gateway.
+This document defines the control/data protocol between `godemo` SDK clients and the gateway.
 
 ## Transport
 

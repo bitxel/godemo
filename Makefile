@@ -23,4 +23,4 @@ lint-go:
 	cd gateway && go vet ./...
 
 clean:
-	rm -f gateway/coverage.out gateway/gateway gateway/demoit-gateway
+	rm -f gateway/coverage.out gateway/gateway gateway/godemo-gateway

@@ -317,7 +317,7 @@ func (s *server) handlePublicRequest(w http.ResponseWriter, r *http.Request) {
 	host := hostWithoutPort(r.Host)
 	if host == s.rootDomain {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"service":     "demoit-gateway",
+			"service":     "godemo-gateway",
 			"root_domain": s.rootDomain,
 			"docs":        "/docs/protocol-v1.md",
 		})

@@ -128,7 +128,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("demoit gateway listening on %s with root domain %s", s.addr, s.rootDomain)
+	log.Printf("godemo gateway listening on %s with root domain %s", s.addr, s.rootDomain)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("listen failed: %v", err)
 	}
@@ -136,21 +136,21 @@ func main() {
 }
 
 func newServerFromEnv() *server {
-	ttlSeconds := envInt("DEMOIT_SESSION_TTL_SECONDS", int(defaultSessionTTL.Seconds()))
-	requestTimeout := envInt("DEMOIT_REQUEST_TIMEOUT_SECONDS", int(defaultRequestTimeout.Seconds()))
+	ttlSeconds := envInt("GODEMO_SESSION_TTL_SECONDS", int(defaultSessionTTL.Seconds()))
+	requestTimeout := envInt("GODEMO_REQUEST_TIMEOUT_SECONDS", int(defaultRequestTimeout.Seconds()))
 
 	return &server{
-		addr:             envString("DEMOIT_ADDR", defaultAddr),
-		rootDomain:       envString("DEMOIT_ROOT_DOMAIN", defaultRootDomain),
+		addr:             envString("GODEMO_ADDR", defaultAddr),
+		rootDomain:       envString("GODEMO_ROOT_DOMAIN", defaultRootDomain),
 		sessionTTL:       time.Duration(ttlSeconds) * time.Second,
 		requestTimeout:   time.Duration(requestTimeout) * time.Second,
-		maxSessionsPerIP: envInt("DEMOIT_MAX_SESSIONS_PER_IP", defaultMaxSessionsPerIP),
-		createPerMinute:  envInt("DEMOIT_MAX_CREATE_PER_MINUTE", defaultCreatePerMinute),
-		maxHTTPBodyBytes: int64(envInt("DEMOIT_MAX_HTTP_BODY_BYTES", defaultMaxHTTPBodyBytes)),
-		maxWSMessageSize: int64(envInt("DEMOIT_MAX_WS_MESSAGE_BYTES", defaultMaxWSMessageBytes)),
-		trustProxy:       envString("DEMOIT_TRUST_PROXY", "false") == "true",
-		allowIPs:         listToSet(envString("DEMOIT_ALLOW_IPS", "")),
-		denyIPs:          listToSet(envString("DEMOIT_DENY_IPS", "")),
+		maxSessionsPerIP: envInt("GODEMO_MAX_SESSIONS_PER_IP", defaultMaxSessionsPerIP),
+		createPerMinute:  envInt("GODEMO_MAX_CREATE_PER_MINUTE", defaultCreatePerMinute),
+		maxHTTPBodyBytes: int64(envInt("GODEMO_MAX_HTTP_BODY_BYTES", defaultMaxHTTPBodyBytes)),
+		maxWSMessageSize: int64(envInt("GODEMO_MAX_WS_MESSAGE_BYTES", defaultMaxWSMessageBytes)),
+		trustProxy:       envString("GODEMO_TRUST_PROXY", "false") == "true",
+		allowIPs:         listToSet(envString("GODEMO_ALLOW_IPS", "")),
+		denyIPs:          listToSet(envString("GODEMO_DENY_IPS", "")),
 		sessions:         make(map[string]*tunnelSession),
 		bySubdomain:      make(map[string]string),
 		ipSessionNum:     make(map[string]int),

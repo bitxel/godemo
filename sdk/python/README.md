@@ -1,18 +1,18 @@
-# demoit Python SDK
+# godemo Python SDK
 
 ## Install and Run
 
 ```bash
-pip install demoit
-demoit 3000
+pip install godemo
+godemo 3000
 ```
 
 ## Code integration: expose a running port
 
 ```python
-import demoit
+import godemo
 
-tunnel = demoit.expose(8000)
+tunnel = godemo.expose(8000)
 print(tunnel.public_url)
 input("Press Enter to stop...")
 tunnel.close()
@@ -22,7 +22,7 @@ tunnel.close()
 
 ```python
 from fastapi import FastAPI
-import demoit
+import godemo
 
 app = FastAPI()
 
@@ -30,10 +30,10 @@ app = FastAPI()
 def root():
     return {"hello": "world"}
 
-tunnel = demoit.expose_app(app)
+tunnel = godemo.expose_app(app)
 print(tunnel.public_url)
 ```
 
 ## Environment variables
 
-- `DEMOIT_GATEWAY_URL` -- override the default public gateway
+- `GODEMO_GATEWAY_URL` -- override the default public gateway

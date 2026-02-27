@@ -6,13 +6,13 @@ Usage:
     python expose_example.py
 
     # Or with a custom gateway:
-    DEMOIT_GATEWAY_URL=http://127.0.0.1:8080 python expose_example.py
+    GODEMO_GATEWAY_URL=http://127.0.0.1:8080 python expose_example.py
 """
-import demoit
+import godemo
 
 
 def main() -> None:
-    tunnel = demoit.expose(8000)
+    tunnel = godemo.expose(8000)
     print("Public URL:", tunnel.public_url)
     try:
         input("Press Enter to stop...")

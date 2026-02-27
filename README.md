@@ -1,12 +1,12 @@
-# demoit
+# godemo
 
 Share your localhost app with one command. No signup, no config.
 
 ## Install and Run
 
 ```bash
-pip install demoit
-demoit 3000
+pip install godemo
+godemo 3000
 ```
 
 ## In Your Python Code
@@ -14,9 +14,9 @@ demoit 3000
 ### Expose an existing port
 
 ```python
-import demoit
+import godemo
 
-tunnel = demoit.expose(8000)
+tunnel = godemo.expose(8000)
 print(tunnel.public_url)
 ```
 
@@ -24,7 +24,7 @@ print(tunnel.public_url)
 
 ```python
 from fastapi import FastAPI
-import demoit
+import godemo
 
 app = FastAPI()
 
@@ -32,7 +32,7 @@ app = FastAPI()
 def root():
     return {"hello": "world"}
 
-tunnel = demoit.expose_app(app)
+tunnel = godemo.expose_app(app)
 print(tunnel.public_url)
 ```
 
@@ -42,14 +42,14 @@ Run the gateway on your own VPS:
 
 ```bash
 cd gateway
-go build -o demoit-gateway .
-DEMOIT_ROOT_DOMAIN=tunnel.yourdomain.com ./demoit-gateway
+go build -o godemo-gateway .
+GODEMO_ROOT_DOMAIN=tunnel.yourdomain.com ./godemo-gateway
 ```
 
 Then point the SDK at it:
 
 ```bash
-DEMOIT_GATEWAY_URL=https://tunnel.yourdomain.com demoit 3000
+GODEMO_GATEWAY_URL=https://tunnel.yourdomain.com godemo 3000
 ```
 
 ## Project Structure
@@ -69,15 +69,15 @@ DEMOIT_GATEWAY_URL=https://tunnel.yourdomain.com demoit 3000
 
 | Variable | Default |
 |----------|---------|
-| `DEMOIT_ADDR` | `:8080` |
-| `DEMOIT_ROOT_DOMAIN` | `0x0f.me` |
-| `DEMOIT_SESSION_TTL_SECONDS` | `7200` |
-| `DEMOIT_REQUEST_TIMEOUT_SECONDS` | `20` |
-| `DEMOIT_MAX_SESSIONS_PER_IP` | `5` |
-| `DEMOIT_MAX_CREATE_PER_MINUTE` | `20` |
-| `DEMOIT_DENY_IPS` | (empty) |
-| `DEMOIT_ALLOW_IPS` | (empty) |
-| `DEMOIT_TRUST_PROXY` | `false` |
+| `GODEMO_ADDR` | `:8080` |
+| `GODEMO_ROOT_DOMAIN` | `0x0f.me` |
+| `GODEMO_SESSION_TTL_SECONDS` | `7200` |
+| `GODEMO_REQUEST_TIMEOUT_SECONDS` | `20` |
+| `GODEMO_MAX_SESSIONS_PER_IP` | `5` |
+| `GODEMO_MAX_CREATE_PER_MINUTE` | `20` |
+| `GODEMO_DENY_IPS` | (empty) |
+| `GODEMO_ALLOW_IPS` | (empty) |
+| `GODEMO_TRUST_PROXY` | `false` |
 
 ## License
 
