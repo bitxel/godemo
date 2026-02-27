@@ -7,6 +7,8 @@ __pycache__/
 
 # Go
 bin/
+*.out
+coverage.html
 
 # IDE
 .DS_Store
