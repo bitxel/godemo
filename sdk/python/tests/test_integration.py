@@ -5,12 +5,10 @@ These tests require Go to be installed (to build the gateway binary).
 Skip gracefully if Go is not available.
 """
 
-import asyncio
 import http.server
 import json
 import os
 import shutil
-import signal
 import socket
 import subprocess
 import sys
@@ -67,12 +65,14 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
     def _respond(self) -> None:
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length) if content_length else b""
-        payload = json.dumps({
-            "method": self.command,
-            "path": self.path,
-            "body": body.decode("utf-8", errors="replace"),
-            "echo": True,
-        }).encode("utf-8")
+        payload = json.dumps(
+            {
+                "method": self.command,
+                "path": self.path,
+                "body": body.decode("utf-8", errors="replace"),
+                "echo": True,
+            }
+        ).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -145,7 +145,9 @@ class IntegrationTests(unittest.TestCase):
         self.assertIn("session_id", data)
         self.assertIn("token", data)
 
-        del_url = f"http://127.0.0.1:{self.gateway_port}/api/v1/sessions/{data['session_id']}"
+        del_url = (
+            f"http://127.0.0.1:{self.gateway_port}/api/v1/sessions/{data['session_id']}"
+        )
         del_req = Request(
             del_url,
             method="DELETE",
@@ -171,6 +173,7 @@ class IntegrationTests(unittest.TestCase):
             self.assertIsNotNone(tunnel.session_id)
 
             from urllib.parse import urlparse
+
             parsed = urlparse(tunnel.public_url)
             host_header = parsed.hostname
 

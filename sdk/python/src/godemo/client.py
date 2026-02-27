@@ -69,7 +69,9 @@ class Tunnel:
     def start(self) -> "Tunnel":
         if self._thread is not None and self._thread.is_alive():
             return self
-        self._thread = threading.Thread(target=self._run_in_thread, name="godemo-tunnel", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run_in_thread, name="godemo-tunnel", daemon=True
+        )
         self._thread.start()
         self._started.wait(timeout=15)
         if self._startup_error:
@@ -117,7 +119,9 @@ class Tunnel:
 
         await self._delete_session()
 
-    async def _ws_send(self, ws: WebSocketClientProtocol, payload: dict[str, Any]) -> None:
+    async def _ws_send(
+        self, ws: WebSocketClientProtocol, payload: dict[str, Any]
+    ) -> None:
         async with self._ws_write_lock:
             await ws.send(json.dumps(payload))
 
@@ -156,7 +160,9 @@ class Tunnel:
             for task in tasks:
                 task.cancel()
 
-    async def _handle_http_request(self, ws: WebSocketClientProtocol, msg: dict[str, Any]) -> None:
+    async def _handle_http_request(
+        self, ws: WebSocketClientProtocol, msg: dict[str, Any]
+    ) -> None:
         request_id = msg["request_id"]
         method = msg["method"]
         path = msg.get("path", "/")
@@ -170,12 +176,17 @@ class Tunnel:
             url = f"{url}?{query}"
 
         try:
-            async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self.request_timeout_seconds
+            ) as client:
                 resp = await client.request(
                     method=method,
                     url=url,
                     content=body,
-                    headers={k: ",".join(v) if isinstance(v, list) else str(v) for k, v in headers.items()},
+                    headers={
+                        k: ",".join(v) if isinstance(v, list) else str(v)
+                        for k, v in headers.items()
+                    },
                 )
             response_headers: dict[str, list[str]] = {}
             for key, value in resp.headers.multi_items():
@@ -198,7 +209,9 @@ class Tunnel:
                 "status": 502,
                 "headers": {"content-type": ["application/json"]},
                 "body_b64": base64.b64encode(
-                    json.dumps({"error": f"local request failed: {exc}"}).encode("utf-8")
+                    json.dumps({"error": f"local request failed: {exc}"}).encode(
+                        "utf-8"
+                    )
                 ).decode("utf-8"),
             }
         await self._ws_send(ws, payload)
@@ -266,7 +279,9 @@ class Tunnel:
                 },
             )
 
-    async def _handle_ws_data(self, msg: dict[str, Any], bridges: dict[str, _LocalWSBridge]) -> None:
+    async def _handle_ws_data(
+        self, msg: dict[str, Any], bridges: dict[str, _LocalWSBridge]
+    ) -> None:
         connection_id = msg.get("connection_id", "")
         bridge = bridges.get(connection_id)
         if not bridge:
@@ -278,7 +293,9 @@ class Tunnel:
         else:
             await bridge.local_ws.send(payload.decode("utf-8", errors="replace"))
 
-    async def _handle_ws_close(self, msg: dict[str, Any], bridges: dict[str, _LocalWSBridge]) -> None:
+    async def _handle_ws_close(
+        self, msg: dict[str, Any], bridges: dict[str, _LocalWSBridge]
+    ) -> None:
         connection_id = msg.get("connection_id", "")
         bridge = bridges.pop(connection_id, None)
         if not bridge:
@@ -292,7 +309,9 @@ class Tunnel:
             "port": self.local_port,
         }
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(f"{self.gateway_url}/api/v1/sessions", json=payload)
+            resp = await client.post(
+                f"{self.gateway_url}/api/v1/sessions", json=payload
+            )
             resp.raise_for_status()
             data = resp.json()
         return _SessionInfo(
@@ -308,7 +327,10 @@ class Tunnel:
         headers = {"Authorization": f"Bearer {self._token}"}
         async with httpx.AsyncClient(timeout=5) as client:
             try:
-                await client.delete(f"{self.gateway_url}/api/v1/sessions/{self.session_id}", headers=headers)
+                await client.delete(
+                    f"{self.gateway_url}/api/v1/sessions/{self.session_id}",
+                    headers=headers,
+                )
             except Exception:
                 pass
 
@@ -388,7 +410,9 @@ def expose_app(
             srv = make_server(host, port, app)
             srv.serve_forever()
 
-    server_thread = _threading.Thread(target=_run_server, daemon=True, name="godemo-app-server")
+    server_thread = _threading.Thread(
+        target=_run_server, daemon=True, name="godemo-app-server"
+    )
     server_thread.start()
 
     _wait_for_port(host, port)
@@ -404,6 +428,7 @@ def expose_app(
 def _wait_for_port(host: str, port: int, timeout: float = 5.0) -> None:
     import socket
     import time as _time
+
     deadline = _time.monotonic() + timeout
     interval = 0.05
     while _time.monotonic() < deadline:
@@ -417,14 +442,17 @@ def _wait_for_port(host: str, port: int, timeout: float = 5.0) -> None:
 
 
 def _looks_like_asgi(app: Any) -> bool:
-    import asyncio
     import inspect
 
     mod = getattr(type(app), "__module__", "") or ""
     if mod.startswith(("fastapi", "starlette", "litestar", "quart")):
         return True
 
-    callable_obj = app if inspect.isfunction(app) else (app.__call__ if hasattr(app, "__call__") else app)
+    callable_obj = (
+        app
+        if inspect.isfunction(app)
+        else (app.__call__ if hasattr(app, "__call__") else app)
+    )
     try:
         sig = inspect.signature(callable_obj)
     except (ValueError, TypeError):
@@ -455,16 +483,18 @@ def run_cli() -> None:
         default=None,
         help=f"Gateway URL (default: $GODEMO_GATEWAY_URL or {DEFAULT_GATEWAY_URL})",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="Local bind host (default: 127.0.0.1)")
+    parser.add_argument(
+        "--host", default="127.0.0.1", help="Local bind host (default: 127.0.0.1)"
+    )
 
     args = parser.parse_args()
 
     tunnel = expose(port=args.port, gateway_url=args.gateway, local_host=args.host)
 
-    print(f"\n  godemo tunnel active\n")
+    print("\n  godemo tunnel active\n")
     print(f"  Public URL:  {tunnel.public_url}")
     print(f"  Forwarding:  {args.host}:{args.port}")
-    print(f"\n  Press Ctrl+C to stop.\n")
+    print("\n  Press Ctrl+C to stop.\n")
 
     def _shutdown(sig: int, frame: Any) -> None:
         print("\n  Shutting down...")

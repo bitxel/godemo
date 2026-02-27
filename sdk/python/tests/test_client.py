@@ -41,11 +41,15 @@ class DefaultGatewayTests(unittest.TestCase):
     def test_default_gateway_url_env_override(self) -> None:
         import importlib
         from godemo import client as client_mod
-        original = client_mod.DEFAULT_GATEWAY_URL
+
         try:
-            with mock.patch.dict(os.environ, {"GODEMO_GATEWAY_URL": "https://custom.example.com"}):
+            with mock.patch.dict(
+                os.environ, {"GODEMO_GATEWAY_URL": "https://custom.example.com"}
+            ):
                 importlib.reload(client_mod)
-                self.assertEqual(client_mod.DEFAULT_GATEWAY_URL, "https://custom.example.com")
+                self.assertEqual(
+                    client_mod.DEFAULT_GATEWAY_URL, "https://custom.example.com"
+                )
         finally:
             with mock.patch.dict(os.environ, {}, clear=False):
                 os.environ.pop("GODEMO_GATEWAY_URL", None)
@@ -112,7 +116,9 @@ class ExposeTests(unittest.TestCase):
 
     def test_context_manager_closes_tunnel(self) -> None:
         tunnel = Tunnel(local_port=8000, gateway_url="http://localhost:8080")
-        with mock.patch.object(Tunnel, "start", autospec=True, side_effect=lambda self: self):
+        with mock.patch.object(
+            Tunnel, "start", autospec=True, side_effect=lambda self: self
+        ):
             with mock.patch.object(Tunnel, "close", autospec=True) as close_mock:
                 with tunnel as active:
                     self.assertIs(active, tunnel)
@@ -192,6 +198,7 @@ class AsgiDetectionTests(unittest.TestCase):
         class FakeApp:
             class __class__:
                 __module__ = "fastapi.applications"
+
         fake = FakeApp()
         type(fake).__module__ = "fastapi.applications"
         self.assertTrue(_looks_like_asgi(fake))
@@ -199,6 +206,7 @@ class AsgiDetectionTests(unittest.TestCase):
     def test_starlette_detected_as_asgi(self) -> None:
         class FakeApp:
             pass
+
         fake = FakeApp()
         type(fake).__module__ = "starlette.applications"
         self.assertTrue(_looks_like_asgi(fake))
@@ -206,6 +214,7 @@ class AsgiDetectionTests(unittest.TestCase):
     def test_litestar_detected_as_asgi(self) -> None:
         class FakeApp:
             pass
+
         fake = FakeApp()
         type(fake).__module__ = "litestar.app"
         self.assertTrue(_looks_like_asgi(fake))
@@ -213,6 +222,7 @@ class AsgiDetectionTests(unittest.TestCase):
     def test_quart_detected_as_asgi(self) -> None:
         class FakeApp:
             pass
+
         fake = FakeApp()
         type(fake).__module__ = "quart.app"
         self.assertTrue(_looks_like_asgi(fake))
@@ -220,30 +230,36 @@ class AsgiDetectionTests(unittest.TestCase):
     def test_plain_callable_not_asgi(self) -> None:
         def handler(request):
             return None
+
         self.assertFalse(_looks_like_asgi(handler))
 
     def test_plain_async_function_detected_as_asgi(self) -> None:
         """Plain async functions with (scope, receive, send) are now correctly
         detected via iscoroutinefunction + param count check."""
+
         async def asgi_app(scope, receive, send):
             pass
+
         self.assertTrue(_looks_like_asgi(asgi_app))
 
     def test_two_param_callable_not_asgi(self) -> None:
         async def handler(scope, receive):
             pass
+
         self.assertFalse(_looks_like_asgi(handler))
 
     def test_class_with_asgi_call(self) -> None:
         class App:
             async def __call__(self, scope, receive, send):
                 pass
+
         self.assertTrue(_looks_like_asgi(App()))
 
     def test_regular_module_not_asgi(self) -> None:
         class App:
             async def __call__(self, request):
                 pass
+
         app = App()
         type(app).__module__ = "myapp.views"
         self.assertFalse(_looks_like_asgi(app))
@@ -302,7 +318,9 @@ class CliHelpTests(unittest.TestCase):
         tunnel_mock.public_url = "https://qs-test.example.com"
 
         with mock.patch("sys.argv", ["godemo", "3000", "--gateway", "http://test.gw"]):
-            with mock.patch("godemo.client.expose", return_value=tunnel_mock) as expose_mock:
+            with mock.patch(
+                "godemo.client.expose", return_value=tunnel_mock
+            ) as expose_mock:
                 with mock.patch("signal.pause", side_effect=KeyboardInterrupt):
                     try:
                         run_cli()
@@ -317,7 +335,9 @@ class CliHelpTests(unittest.TestCase):
         tunnel_mock.public_url = "https://qs-test.example.com"
 
         with mock.patch("sys.argv", ["godemo", "8000", "--host", "0.0.0.0"]):
-            with mock.patch("godemo.client.expose", return_value=tunnel_mock) as expose_mock:
+            with mock.patch(
+                "godemo.client.expose", return_value=tunnel_mock
+            ) as expose_mock:
                 with mock.patch("signal.pause", side_effect=KeyboardInterrupt):
                     try:
                         run_cli()
@@ -351,6 +371,7 @@ class ExposeAppTests(unittest.TestCase):
     def test_expose_app_asgi_starts_uvicorn(self) -> None:
         class FakeASGI:
             pass
+
         app = FakeASGI()
         type(app).__module__ = "fastapi.applications"
 
@@ -361,7 +382,7 @@ class ExposeAppTests(unittest.TestCase):
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
                     with mock.patch("godemo.client._wait_for_port"):
-                        result = expose_app(app, gateway_url="http://gw.test")
+                        expose_app(app, gateway_url="http://gw.test")
                         thread_instance.start.assert_called_once()
                         expose_mock.assert_called_once()
 
@@ -376,7 +397,7 @@ class ExposeAppTests(unittest.TestCase):
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
                     with mock.patch("godemo.client._wait_for_port"):
-                        result = expose_app(wsgi_app, gateway_url="http://gw.test")
+                        expose_app(wsgi_app, gateway_url="http://gw.test")
                         thread_instance.start.assert_called_once()
 
     def test_expose_app_picks_ephemeral_port(self) -> None:
@@ -390,9 +411,11 @@ class ExposeAppTests(unittest.TestCase):
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
                     with mock.patch("godemo.client._wait_for_port"):
-                        result = expose_app(wsgi_app, port=0, gateway_url="http://gw.test")
+                        expose_app(wsgi_app, port=0, gateway_url="http://gw.test")
                         call_args = expose_mock.call_args
-                        used_port = call_args.kwargs.get("port") or call_args[1].get("port")
+                        used_port = call_args.kwargs.get("port") or call_args[1].get(
+                            "port"
+                        )
                         self.assertGreater(used_port, 0)
 
     def test_expose_app_with_explicit_port(self) -> None:
@@ -406,9 +429,11 @@ class ExposeAppTests(unittest.TestCase):
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
                     with mock.patch("godemo.client._wait_for_port"):
-                        result = expose_app(wsgi_app, port=9999, gateway_url="http://gw.test")
+                        expose_app(wsgi_app, port=9999, gateway_url="http://gw.test")
                         call_args = expose_mock.call_args
-                        used_port = call_args.kwargs.get("port") or call_args[1].get("port")
+                        used_port = call_args.kwargs.get("port") or call_args[1].get(
+                            "port"
+                        )
                         self.assertEqual(used_port, 9999)
 
 
@@ -444,6 +469,7 @@ class LocalWSBridgeTests(unittest.TestCase):
 class PackageExportTests(unittest.TestCase):
     def test_top_level_imports(self) -> None:
         import godemo
+
         self.assertTrue(hasattr(godemo, "Tunnel"))
         self.assertTrue(hasattr(godemo, "expose"))
         self.assertTrue(hasattr(godemo, "expose_app"))
@@ -452,6 +478,7 @@ class PackageExportTests(unittest.TestCase):
 
     def test_all_exports(self) -> None:
         import godemo
+
         expected = {"Tunnel", "expose", "expose_app", "run_cli", "DEFAULT_GATEWAY_URL"}
         self.assertEqual(set(godemo.__all__), expected)
 
@@ -464,7 +491,7 @@ class MainModuleTests(unittest.TestCase):
         with mock.patch("godemo.client.run_cli") as run_cli_mock:
             run_cli_mock.side_effect = SystemExit(0)
             with self.assertRaises(SystemExit):
-                import godemo.__main__
+                import godemo.__main__  # noqa: F401
 
 
 if __name__ == "__main__":
