@@ -18,7 +18,7 @@ Output:
 ```
   godemo tunnel active
 
-  Public URL:  https://dm-7f3a1b2c.godemo.0x0f.me
+  Public URL:  https://dm-7f3a1b2c.0x0f.me
   Forwarding:  127.0.0.1:3000
 
   Press Ctrl+C to stop.
@@ -34,7 +34,7 @@ Anyone on the internet can now reach your local `:3000` via the public URL.
 import godemo
 
 tunnel = godemo.expose(8000)
-print(tunnel.public_url)   # https://dm-xxxx.godemo.0x0f.me
+print(tunnel.public_url)   # https://dm-xxxx.0x0f.me
 input("Press Enter to stop...")
 tunnel.close()
 ```
@@ -87,7 +87,7 @@ Start a local server for a WSGI/ASGI app and create a tunnel.
 
 | Attribute / Method | Description |
 |-------------------|-------------|
-| `.public_url` | The public URL (e.g. `https://dm-xxxx.godemo.0x0f.me`) |
+| `.public_url` | The public URL (e.g. `https://dm-xxxx.0x0f.me`) |
 | `.session_id` | Gateway session ID |
 | `.close()` | Shut down the tunnel |
 | context manager | `with godemo.expose(8000) as t:` auto-closes |
