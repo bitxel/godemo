@@ -5,11 +5,13 @@ import base64
 import getpass
 import hashlib
 import json
+import logging
 import os
 import platform
 import signal
 import sys
 import threading
+import time as _time
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -17,6 +19,8 @@ from typing import Any
 import httpx
 import websockets
 from websockets.client import WebSocketClientProtocol
+
+logger = logging.getLogger("godemo")
 
 DEFAULT_GATEWAY_URL = os.environ.get("GODEMO_GATEWAY_URL", "https://godemo.0x0f.me")
 
@@ -129,6 +133,7 @@ class Tunnel:
 
         self._ws_write_lock = asyncio.Lock()
 
+        logger.info("connecting tunnel ws %s", session.ws_endpoint)
         try:
             async with websockets.connect(
                 session.ws_endpoint,
@@ -137,10 +142,11 @@ class Tunnel:
                 ping_timeout=20,
                 close_timeout=3,
             ) as ws:
+                logger.info("tunnel ws connected, session=%s", session.session_id)
                 await ws.send(json.dumps({"type": "auth", "token": session.token}))
                 await self._event_loop(ws)
         except Exception as exc:
-            print(f"[godemo] tunnel websocket error: {exc}", file=sys.stderr)
+            logger.error("tunnel ws error: %s", exc)
             raise
 
         await self._delete_session()
@@ -179,7 +185,7 @@ class Tunnel:
                 elif msg_type == "ping":
                     await self._ws_send(ws, {"type": "pong"})
                 elif msg_type == "error":
-                    print(f"[godemo] gateway error: {msg.get('message', 'unknown')}")
+                    logger.warning("gateway error: %s", msg.get("message", "unknown"))
         finally:
             for bridge in local_ws_bridges.values():
                 await bridge.local_ws.close()
@@ -201,6 +207,15 @@ class Tunnel:
         if query:
             url = f"{url}?{query}"
 
+        t0 = _time.monotonic()
+        logger.info(
+            "%s %s req=%s body=%d bytes",
+            method,
+            path + (f"?{query}" if query else ""),
+            request_id,
+            len(body),
+        )
+
         try:
             async with httpx.AsyncClient(
                 timeout=self.request_timeout_seconds
@@ -214,6 +229,7 @@ class Tunnel:
                         for k, v in headers.items()
                     },
                 )
+            elapsed_ms = (_time.monotonic() - t0) * 1000
             response_headers: dict[str, list[str]] = {}
             for key, value in resp.headers.multi_items():
                 lk = key.lower()
@@ -221,6 +237,15 @@ class Tunnel:
                     response_headers[lk] = []
                 response_headers[lk].append(value)
 
+            logger.info(
+                "%s %s req=%s -> %d (%d bytes, %.0fms)",
+                method,
+                path,
+                request_id,
+                resp.status_code,
+                len(resp.content),
+                elapsed_ms,
+            )
             payload = {
                 "type": "response",
                 "request_id": request_id,
@@ -229,6 +254,15 @@ class Tunnel:
                 "body_b64": base64.b64encode(resp.content).decode("utf-8"),
             }
         except Exception as exc:
+            elapsed_ms = (_time.monotonic() - t0) * 1000
+            logger.error(
+                "%s %s req=%s -> 502 error=%s (%.0fms)",
+                method,
+                path,
+                request_id,
+                exc,
+                elapsed_ms,
+            )
             payload = {
                 "type": "response",
                 "request_id": request_id,
@@ -256,6 +290,7 @@ class Tunnel:
         if query:
             target = f"{target}?{query}"
 
+        logger.info("ws_open conn=%s path=%s", connection_id, path)
         try:
             local_ws = await websockets.connect(target, max_size=8 * 1024 * 1024)
             bridge = _LocalWSBridge(local_ws)
@@ -295,6 +330,7 @@ class Tunnel:
             tasks.add(task)
             task.add_done_callback(tasks.discard)
         except Exception as exc:
+            logger.error("ws_open failed conn=%s error=%s", connection_id, exc)
             await self._ws_send(
                 ws,
                 {
@@ -323,6 +359,7 @@ class Tunnel:
         self, msg: dict[str, Any], bridges: dict[str, _LocalWSBridge]
     ) -> None:
         connection_id = msg.get("connection_id", "")
+        logger.info("ws_close conn=%s", connection_id)
         bridge = bridges.pop(connection_id, None)
         if not bridge:
             return
@@ -334,6 +371,7 @@ class Tunnel:
             "fingerprint": _machine_fingerprint(),
             "port": self.local_port,
         }
+        logger.info("creating session at %s", self.gateway_url)
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
                 f"{self.gateway_url}/api/v1/sessions", json=payload
@@ -344,6 +382,9 @@ class Tunnel:
         ws_endpoint = _fix_ws_scheme(data["ws_endpoint"], self.gateway_url)
         public_url = _fix_public_scheme(data["public_url"], self.gateway_url)
 
+        logger.info(
+            "session created id=%s public_url=%s", data["session_id"], public_url
+        )
         return _SessionInfo(
             session_id=data["session_id"],
             token=data["token"],
@@ -354,6 +395,7 @@ class Tunnel:
     async def _delete_session(self) -> None:
         if not self.session_id or not self._token:
             return
+        logger.info("deleting session %s", self.session_id)
         headers = {"Authorization": f"Bearer {self._token}"}
         async with httpx.AsyncClient(timeout=5) as client:
             try:
@@ -517,7 +559,21 @@ def run_cli() -> None:
         "--host", default="127.0.0.1", help="Local bind host (default: 127.0.0.1)"
     )
 
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Enable verbose request logging",
+    )
+
     args = parser.parse_args()
+
+    logging.basicConfig(
+        format="%(asctime)s [godemo] %(message)s",
+        datefmt="%H:%M:%S",
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        stream=sys.stderr,
+    )
 
     tunnel = expose(port=args.port, gateway_url=args.gateway, local_host=args.host)
 
