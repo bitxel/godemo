@@ -21,6 +21,28 @@ from websockets.client import WebSocketClientProtocol
 DEFAULT_GATEWAY_URL = os.environ.get("GODEMO_GATEWAY_URL", "https://godemo.0x0f.me")
 
 
+def _fix_ws_scheme(ws_url: str, gateway_url: str) -> str:
+    """Ensure the WebSocket scheme matches the gateway URL scheme.
+
+    When a reverse proxy terminates TLS but the backend gateway doesn't set
+    trustProxy, the ws_endpoint may come back as ws:// even though the SDK
+    connected via https://. The ws:// URL would fail because the proxy
+    redirects HTTP->HTTPS and the websockets library can't follow redirects.
+    """
+    if gateway_url.startswith("https://") and ws_url.startswith("ws://"):
+        return "wss://" + ws_url[len("ws://") :]
+    if gateway_url.startswith("http://") and ws_url.startswith("wss://"):
+        return "ws://" + ws_url[len("wss://") :]
+    return ws_url
+
+
+def _fix_public_scheme(public_url: str, gateway_url: str) -> str:
+    """Upgrade public_url to https:// when the gateway was reached over HTTPS."""
+    if gateway_url.startswith("https://") and public_url.startswith("http://"):
+        return "https://" + public_url[len("http://") :]
+    return public_url
+
+
 def _machine_fingerprint() -> str:
     raw = f"{platform.node()}:{uuid.getnode()}:{getpass.getuser()}"
     return hashlib.sha256(raw.encode()).hexdigest()
@@ -107,15 +129,19 @@ class Tunnel:
 
         self._ws_write_lock = asyncio.Lock()
 
-        async with websockets.connect(
-            session.ws_endpoint,
-            max_size=8 * 1024 * 1024,
-            ping_interval=20,
-            ping_timeout=20,
-            close_timeout=3,
-        ) as ws:
-            await ws.send(json.dumps({"type": "auth", "token": session.token}))
-            await self._event_loop(ws)
+        try:
+            async with websockets.connect(
+                session.ws_endpoint,
+                max_size=8 * 1024 * 1024,
+                ping_interval=20,
+                ping_timeout=20,
+                close_timeout=3,
+            ) as ws:
+                await ws.send(json.dumps({"type": "auth", "token": session.token}))
+                await self._event_loop(ws)
+        except Exception as exc:
+            print(f"[godemo] tunnel websocket error: {exc}", file=sys.stderr)
+            raise
 
         await self._delete_session()
 
@@ -314,11 +340,15 @@ class Tunnel:
             )
             resp.raise_for_status()
             data = resp.json()
+
+        ws_endpoint = _fix_ws_scheme(data["ws_endpoint"], self.gateway_url)
+        public_url = _fix_public_scheme(data["public_url"], self.gateway_url)
+
         return _SessionInfo(
             session_id=data["session_id"],
             token=data["token"],
-            public_url=data["public_url"],
-            ws_endpoint=data["ws_endpoint"],
+            public_url=public_url,
+            ws_endpoint=ws_endpoint,
         )
 
     async def _delete_session(self) -> None:

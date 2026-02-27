@@ -13,6 +13,8 @@ from godemo.client import (
     expose_app,
     _looks_like_asgi,
     _machine_fingerprint,
+    _fix_ws_scheme,
+    _fix_public_scheme,
     run_cli,
     DEFAULT_GATEWAY_URL,
     _SessionInfo,
@@ -263,6 +265,43 @@ class AsgiDetectionTests(unittest.TestCase):
         app = App()
         type(app).__module__ = "myapp.views"
         self.assertFalse(_looks_like_asgi(app))
+
+
+# ---------------------------------------------------------------------------
+# Scheme Fix Helpers
+# ---------------------------------------------------------------------------
+class FixWsSchemeTests(unittest.TestCase):
+    def test_upgrades_ws_to_wss_when_gateway_is_https(self) -> None:
+        result = _fix_ws_scheme("ws://gw.example.com/ws", "https://gw.example.com")
+        self.assertEqual(result, "wss://gw.example.com/ws")
+
+    def test_downgrades_wss_to_ws_when_gateway_is_http(self) -> None:
+        result = _fix_ws_scheme("wss://gw.example.com/ws", "http://gw.example.com")
+        self.assertEqual(result, "ws://gw.example.com/ws")
+
+    def test_no_change_when_schemes_match(self) -> None:
+        self.assertEqual(
+            _fix_ws_scheme("wss://gw.example.com/ws", "https://gw.example.com"),
+            "wss://gw.example.com/ws",
+        )
+        self.assertEqual(
+            _fix_ws_scheme("ws://gw.example.com/ws", "http://gw.example.com"),
+            "ws://gw.example.com/ws",
+        )
+
+
+class FixPublicSchemeTests(unittest.TestCase):
+    def test_upgrades_http_to_https_when_gateway_is_https(self) -> None:
+        result = _fix_public_scheme("http://sub.example.com", "https://gw.example.com")
+        self.assertEqual(result, "https://sub.example.com")
+
+    def test_no_change_when_already_https(self) -> None:
+        result = _fix_public_scheme("https://sub.example.com", "https://gw.example.com")
+        self.assertEqual(result, "https://sub.example.com")
+
+    def test_no_change_when_gateway_is_http(self) -> None:
+        result = _fix_public_scheme("http://sub.example.com", "http://gw.example.com")
+        self.assertEqual(result, "http://sub.example.com")
 
 
 # ---------------------------------------------------------------------------
