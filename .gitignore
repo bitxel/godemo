@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Go
+bin/
+
+# IDE
+.DS_Store
+
+# bin
+gateway/gateway
+gateway/demoit-gateway
