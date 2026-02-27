@@ -3,8 +3,8 @@
 Expose any local HTTP or WebSocket service to the internet through a public URL.
 One command, no signup, no config.
 
-**How it works:** A Go gateway runs on a public server. The Python SDK connects to it
-via WebSocket and forwards incoming HTTP/WS requests to your local port.
+**How it works:** A Go gateway runs on a public server. The SDK (Python or Go client)
+connects to it via WebSocket and forwards incoming HTTP/WS requests to your local port.
 
 ## Quick Start
 
@@ -25,6 +25,39 @@ Output:
 ```
 
 Anyone on the internet can now reach your local `:3000` via the public URL.
+
+## Go Client (Binary)
+
+Download a pre-built binary from [GitHub Releases](https://github.com/bitxel/godemo/releases)
+for your platform (Linux, macOS, Windows — amd64 and arm64).
+
+```bash
+# Example: Linux amd64
+curl -Lo godemo-client https://github.com/bitxel/godemo/releases/latest/download/godemo-client-linux-amd64
+chmod +x godemo-client
+./godemo-client 3000
+```
+
+On macOS (Apple Silicon):
+
+```bash
+curl -Lo godemo-client https://github.com/bitxel/godemo/releases/latest/download/godemo-client-darwin-arm64
+chmod +x godemo-client
+./godemo-client 3000
+```
+
+### Go Client CLI
+
+```bash
+godemo-client <port> [--gateway URL] [--host HOST] [--verbose]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `port` | (required) | Local port to expose |
+| `--gateway`, `-g` | `$GODEMO_GATEWAY_URL` or `https://godemo.0x0f.me` | Gateway URL |
+| `--host` | `127.0.0.1` | Local bind host |
+| `--verbose`, `-v` | off | Enable debug logging |
 
 ## Python SDK
 
@@ -147,6 +180,7 @@ See [`docs/deployment.md`](docs/deployment.md) for full Nginx/Caddy/systemd setu
 ## Project Structure
 
 - `gateway/` — Go reverse-proxy gateway
+- `sdk/go/` — Go tunnel client CLI
 - `sdk/python/` — Python SDK and CLI
 - `docs/` — Protocol spec, abuse controls, deployment guide
 - `examples/` — Usage examples

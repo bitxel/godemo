@@ -198,6 +198,127 @@ class IntegrationTests(unittest.TestCase):
             tunnel.close()
 
 
+def _websockets_available() -> bool:
+    try:
+        import websockets  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+@unittest.skipUnless(_go_available(), "Go not installed, skipping integration tests")
+@unittest.skipUnless(
+    _websockets_available(), "websockets not installed, skipping WS tests"
+)
+class WebSocketIntegrationTests(unittest.TestCase):
+    """End-to-end WebSocket forwarding test."""
+
+    gateway_proc: subprocess.Popen | None = None
+    gateway_port: int = 0
+    local_port: int = 0
+    local_ws_server: object = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import asyncio
+
+        cls.gateway_binary = _build_gateway()
+        cls.gateway_port = _find_free_port()
+        cls.gateway_proc = subprocess.Popen(
+            [str(cls.gateway_binary)],
+            env={
+                **os.environ,
+                "GODEMO_ADDR": f":{cls.gateway_port}",
+                "GODEMO_ROOT_DOMAIN": "localhost",
+            },
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        _wait_for_server("127.0.0.1", cls.gateway_port)
+
+        cls.local_port = _find_free_port()
+
+        import websockets  # type: ignore[import-untyped]
+
+        async def ws_echo_handler(ws):  # type: ignore[no-untyped-def]
+            async for message in ws:
+                await ws.send(message)
+
+        cls._ws_loop = asyncio.new_event_loop()
+
+        async def _start_server() -> None:
+            cls._ws_stop = asyncio.Event()
+            async with websockets.serve(ws_echo_handler, "127.0.0.1", cls.local_port):
+                await cls._ws_stop.wait()
+
+        cls._ws_thread = threading.Thread(
+            target=lambda: cls._ws_loop.run_until_complete(_start_server()),
+            daemon=True,
+        )
+        cls._ws_thread.start()
+        _wait_for_server("127.0.0.1", cls.local_port)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls.gateway_proc:
+            cls.gateway_proc.terminate()
+            cls.gateway_proc.wait(timeout=5)
+        if hasattr(cls, "_ws_stop") and hasattr(cls, "_ws_loop"):
+            cls._ws_loop.call_soon_threadsafe(cls._ws_stop.set)
+        binary = GATEWAY_DIR / "godemo-gateway-test"
+        if binary.exists():
+            binary.unlink()
+
+    def test_websocket_echo_through_tunnel(self) -> None:
+        """Full test: tunnel WS connection through gateway, send message, get echo back."""
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+        from godemo.client import Tunnel
+
+        import websockets.sync.client  # type: ignore[import-untyped]
+
+        gateway_url = f"http://127.0.0.1:{self.gateway_port}"
+        tunnel = Tunnel(
+            local_port=self.local_port,
+            gateway_url=gateway_url,
+            local_host="127.0.0.1",
+        )
+        tunnel.start()
+        try:
+            self.assertIsNotNone(tunnel.public_url)
+            tunnel._connected.wait(timeout=10)
+
+            from urllib.parse import urlparse
+
+            host_header = urlparse(tunnel.public_url).hostname
+
+            # Connect to gateway with a pre-connected socket so the
+            # websockets library sends the correct Host header.
+            last_err = None
+            for _ in range(10):
+                try:
+                    raw_sock = socket.create_connection(
+                        ("127.0.0.1", self.gateway_port), timeout=5
+                    )
+                    ws = websockets.sync.client.connect(
+                        f"ws://{host_header}/ws-echo",
+                        sock=raw_sock,
+                        open_timeout=5,
+                        close_timeout=2,
+                    )
+                    ws.send("hello via tunnel")
+                    reply = ws.recv(timeout=5)
+                    ws.close()
+                    self.assertEqual(reply, "hello via tunnel")
+                    return
+                except Exception as exc:
+                    last_err = exc
+                    time.sleep(0.5)
+            self.fail(f"WebSocket echo through tunnel never succeeded: {last_err}")
+        finally:
+            tunnel.close()
+
+
 def _werkzeug_available() -> bool:
     try:
         import werkzeug  # noqa: F401
@@ -208,7 +329,9 @@ def _werkzeug_available() -> bool:
 
 
 @unittest.skipUnless(_go_available(), "Go not installed, skipping integration tests")
-@unittest.skipUnless(_werkzeug_available(), "werkzeug not installed, skipping share_app tests")
+@unittest.skipUnless(
+    _werkzeug_available(), "werkzeug not installed, skipping share_app tests"
+)
 class ShareAppIntegrationTests(unittest.TestCase):
     """End-to-end test for share_app with a WSGI app."""
 

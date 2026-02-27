@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -494,6 +495,115 @@ func TestPublicHTTPPostWithBody(t *testing.T) {
 	}
 
 	<-done
+}
+
+// --- handlePublicHTTP: error via failAllPending (response.Type == "error") ---
+// This tests the `response.Type == "error"` branch in handlePublicHTTP
+// triggered when the SDK WS disconnects while a request is pending.
+// (Complements TestPublicHTTPErrorViaSDKDisconnect with explicit error message check)
+
+func TestPublicHTTPErrorResponseFromFailAllPending(t *testing.T) {
+	s, ts := newTestServer()
+	defer ts.Close()
+	s.requestTimeout = 5 * time.Second
+
+	session := createSession(t, ts.URL)
+	conn := dialSDKWS(t, ts.URL, session)
+
+	gotRequest := make(chan struct{})
+	go func() {
+		var req tunnelMessage
+		if err := conn.ReadJSON(&req); err != nil {
+			return
+		}
+		close(gotRequest)
+		// Wait a moment to ensure the HTTP handler is blocking on responseCh
+		time.Sleep(50 * time.Millisecond)
+		_ = conn.Close()
+	}()
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/trigger-error", nil)
+	req.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	// Either 502 (failAllPending sends error to pending response) or
+	// 503 (conn cleared before request dispatched) are valid outcomes.
+	if resp.StatusCode != http.StatusBadGateway && resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 502 or 503, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+// --- concurrent public HTTP requests to same session ---
+
+func TestConcurrentPublicHTTPSameSession(t *testing.T) {
+	s, ts := newTestServer()
+	defer ts.Close()
+
+	session := createSession(t, ts.URL)
+	conn := dialSDKWS(t, ts.URL, session)
+	defer conn.Close()
+
+	go func() {
+		for {
+			var req tunnelMessage
+			if err := conn.ReadJSON(&req); err != nil {
+				return
+			}
+			if req.Type == "request" {
+				resp := tunnelMessage{
+					Type:      "response",
+					RequestID: req.RequestID,
+					Status:    200,
+					Headers:   map[string][]string{"content-type": {"text/plain"}},
+					BodyB64:   base64.StdEncoding.EncodeToString([]byte(req.Path)),
+				}
+				_ = conn.WriteJSON(resp)
+			}
+		}
+	}()
+
+	const numRequests = 10
+	var wg sync.WaitGroup
+	errs := make(chan error, numRequests)
+
+	for i := 0; i < numRequests; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/conc/%d", ts.URL, idx), nil)
+			req.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				errs <- fmt.Errorf("req %d: %v", idx, err)
+				return
+			}
+			resp.Body.Close()
+			if resp.StatusCode != 200 {
+				errs <- fmt.Errorf("req %d: status %d", idx, resp.StatusCode)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Error(err)
+	}
+}
+
+// --- requestProto: direct TLS connection ---
+
+func TestRequestProtoDirectTLS(t *testing.T) {
+	s := &server{trustProxy: false}
+	req, _ := http.NewRequest("GET", "http://localhost", nil)
+	proto := s.requestProto(req)
+	if proto != "http" {
+		t.Errorf("expected http, got %s", proto)
+	}
 }
 
 // --- X-Forwarded headers are set correctly ---

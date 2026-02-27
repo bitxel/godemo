@@ -19,6 +19,7 @@ from godemo.client import (
     DEFAULT_GATEWAY_URL,
     _SessionInfo,
     _LocalWSBridge,
+    _wait_for_port,
 )
 
 
@@ -531,6 +532,213 @@ class MainModuleTests(unittest.TestCase):
             run_cli_mock.side_effect = SystemExit(0)
             with self.assertRaises(SystemExit):
                 import godemo.__main__  # noqa: F401
+
+
+# ---------------------------------------------------------------------------
+# _handle_http_request (success path)
+# ---------------------------------------------------------------------------
+class HandleHTTPRequestTests(unittest.TestCase):
+    def test_http_request_success_returns_response(self) -> None:
+        tunnel = Tunnel(local_port=9999, gateway_url="http://gw.test")
+        tunnel._ws_write_lock = asyncio.Lock()
+
+        mock_ws = mock.AsyncMock()
+        sent_messages: list[dict] = []
+        mock_ws.send = mock.AsyncMock(side_effect=lambda m: sent_messages.append(m))
+
+        import json
+        import base64
+
+        body_b64 = base64.b64encode(b"").decode()
+        msg = {
+            "type": "request",
+            "request_id": "req_test",
+            "method": "GET",
+            "path": "/test",
+            "query": "",
+            "headers": {},
+            "body_b64": body_b64,
+        }
+
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"ok":true}'
+        mock_response.headers = mock.MagicMock()
+        mock_response.headers.multi_items.return_value = [
+            ("content-type", "application/json")
+        ]
+
+        with mock.patch("godemo.client.httpx.AsyncClient") as client_cls:
+            client_instance = mock.AsyncMock()
+            client_cls.return_value.__aenter__ = mock.AsyncMock(
+                return_value=client_instance
+            )
+            client_cls.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+            client_instance.request.return_value = mock_response
+
+            asyncio.run(tunnel._handle_http_request(mock_ws, msg))
+
+        self.assertEqual(len(sent_messages), 1)
+        parsed = json.loads(sent_messages[0])
+        self.assertEqual(parsed["type"], "response")
+        self.assertEqual(parsed["request_id"], "req_test")
+        self.assertEqual(parsed["status"], 200)
+
+    def test_http_request_error_returns_502(self) -> None:
+        tunnel = Tunnel(local_port=9999, gateway_url="http://gw.test")
+        tunnel._ws_write_lock = asyncio.Lock()
+
+        mock_ws = mock.AsyncMock()
+        sent_messages: list[dict] = []
+        mock_ws.send = mock.AsyncMock(side_effect=lambda m: sent_messages.append(m))
+
+        import json
+        import base64
+
+        msg = {
+            "type": "request",
+            "request_id": "req_err",
+            "method": "GET",
+            "path": "/fail",
+            "query": "",
+            "headers": {},
+            "body_b64": base64.b64encode(b"").decode(),
+        }
+
+        with mock.patch("godemo.client.httpx.AsyncClient") as client_cls:
+            client_instance = mock.AsyncMock()
+            client_cls.return_value.__aenter__ = mock.AsyncMock(
+                return_value=client_instance
+            )
+            client_cls.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+            client_instance.request.side_effect = ConnectionError("refused")
+
+            asyncio.run(tunnel._handle_http_request(mock_ws, msg))
+
+        self.assertEqual(len(sent_messages), 1)
+        parsed = json.loads(sent_messages[0])
+        self.assertEqual(parsed["type"], "response")
+        self.assertEqual(parsed["status"], 502)
+
+
+# ---------------------------------------------------------------------------
+# _create_session
+# ---------------------------------------------------------------------------
+class CreateSessionTests(unittest.TestCase):
+    def test_create_session_returns_session_info(self) -> None:
+        tunnel = Tunnel(local_port=8080, gateway_url="http://gw.test")
+
+        mock_resp = mock.MagicMock()
+        mock_resp.status_code = 201
+        mock_resp.raise_for_status = mock.MagicMock()
+        mock_resp.json.return_value = {
+            "session_id": "ses_abc",
+            "token": "tok_xyz",
+            "public_url": "http://dm-abc.localhost",
+            "ws_endpoint": "ws://gw.test/api/v1/tunnel/ws?session_id=ses_abc",
+        }
+
+        with mock.patch("godemo.client.httpx.AsyncClient") as client_cls:
+            client_instance = mock.AsyncMock()
+            client_cls.return_value.__aenter__ = mock.AsyncMock(
+                return_value=client_instance
+            )
+            client_cls.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+            client_instance.post.return_value = mock_resp
+
+            session = asyncio.run(tunnel._create_session())
+
+        self.assertEqual(session.session_id, "ses_abc")
+        self.assertEqual(session.token, "tok_xyz")
+        self.assertEqual(session.public_url, "http://dm-abc.localhost")
+
+
+# ---------------------------------------------------------------------------
+# _wait_for_port
+# ---------------------------------------------------------------------------
+class WaitForPortTests(unittest.TestCase):
+    def test_wait_for_port_succeeds_on_listening_port(self) -> None:
+        import socket
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(1)
+        port = sock.getsockname()[1]
+        try:
+            _wait_for_port("127.0.0.1", port, timeout=2.0)
+        finally:
+            sock.close()
+
+    def test_wait_for_port_timeout_raises(self) -> None:
+        with self.assertRaises(RuntimeError) as ctx:
+            _wait_for_port("127.0.0.1", 1, timeout=0.2)
+        self.assertIn("did not start", str(ctx.exception))
+
+
+# ---------------------------------------------------------------------------
+# Event loop: malformed JSON and unknown message types
+# ---------------------------------------------------------------------------
+class EventLoopEdgeCaseTests(unittest.TestCase):
+    def test_event_loop_handles_unknown_message_type(self) -> None:
+        """Unknown message types should be silently ignored."""
+        tunnel = Tunnel(local_port=9999, gateway_url="http://gw.test")
+        tunnel._ws_write_lock = asyncio.Lock()
+        tunnel._stop_flag.clear()
+
+        import json
+
+        mock_ws = mock.AsyncMock()
+        messages = iter(
+            [
+                json.dumps({"type": "totally_unknown"}),
+                asyncio.TimeoutError(),
+            ]
+        )
+
+        async def fake_recv():
+            msg = next(messages)
+            if isinstance(msg, Exception):
+                raise msg
+            return msg
+
+        mock_ws.recv = fake_recv
+
+        async def run_loop():
+            tunnel._stop_flag.set()
+            await tunnel._event_loop(mock_ws)
+
+        asyncio.run(run_loop())
+
+    def test_event_loop_handles_binary_message(self) -> None:
+        """Binary messages should be decoded to string."""
+        tunnel = Tunnel(local_port=9999, gateway_url="http://gw.test")
+        tunnel._ws_write_lock = asyncio.Lock()
+        tunnel._stop_flag.clear()
+
+        import json
+
+        call_count = 0
+        sent: list[str] = []
+        mock_ws = mock.AsyncMock()
+
+        async def fake_recv():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return json.dumps({"type": "ping"}).encode("utf-8")
+            tunnel._stop_flag.set()
+            raise asyncio.TimeoutError()
+
+        async def fake_send(data: str) -> None:
+            sent.append(data)
+
+        mock_ws.recv = fake_recv
+        mock_ws.send = fake_send
+
+        asyncio.run(tunnel._event_loop(mock_ws))
+        self.assertTrue(len(sent) > 0)
+        parsed = json.loads(sent[0])
+        self.assertEqual(parsed["type"], "pong")
 
 
 if __name__ == "__main__":

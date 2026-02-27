@@ -8,7 +8,12 @@ This guide covers deploying the `godemo-gateway` binary behind a reverse proxy w
 - A domain (e.g. `0x0f.me`) with DNS access
 - Go 1.22+ for building the binary
 
-## 1. Build
+## 1. Build (or Download)
+
+Pre-built binaries for all platforms are available on the
+[GitHub Releases](https://github.com/bitxel/godemo/releases) page.
+
+To build from source:
 
 ```bash
 cd gateway
@@ -150,9 +155,21 @@ godemo 3000 --gateway https://godemo.0x0f.me
 
 ## Client Quick Start
 
-Users can expose a local port with:
+### Python
 
 ```bash
 pip install godemo
 godemo 3000 --gateway https://godemo.0x0f.me
 ```
+
+### Go (pre-built binary)
+
+Download the binary for your platform from [Releases](https://github.com/bitxel/godemo/releases):
+
+```bash
+curl -Lo godemo-client https://github.com/bitxel/godemo/releases/latest/download/godemo-client-linux-amd64
+chmod +x godemo-client
+./godemo-client 3000 --gateway https://godemo.0x0f.me
+```
+
+Available binaries: `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`, `windows/arm64`.

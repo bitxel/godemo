@@ -27,6 +27,27 @@ jobs:
       - name: Run tests
         run: go test -race -count=1 ./...
 
+  client-go-test:
+    name: Go Client Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/go
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: sdk/go/go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test -race -count=1 ./...
+
   sdk-python-test:
     name: Python SDK Tests
     runs-on: ubuntu-latest
