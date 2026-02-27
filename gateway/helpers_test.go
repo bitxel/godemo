@@ -148,19 +148,31 @@ func TestCloneHeader(t *testing.T) {
 }
 
 func TestRequestProto(t *testing.T) {
+	s := &server{trustProxy: true}
+
 	r := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
-	if p := requestProto(r); p != "http" {
+	if p := s.requestProto(r); p != "http" {
 		t.Fatalf("expected http, got %s", p)
 	}
 
 	r.Header.Set("X-Forwarded-Proto", "HTTPS")
-	if p := requestProto(r); p != "https" {
-		t.Fatalf("expected https from XFP, got %s", p)
+	if p := s.requestProto(r); p != "https" {
+		t.Fatalf("expected https from XFP with trustProxy=true, got %s", p)
 	}
 
 	r.Header.Set("X-Forwarded-Proto", "  Http  ")
-	if p := requestProto(r); p != "http" {
+	if p := s.requestProto(r); p != "http" {
 		t.Fatalf("expected http (trimmed+lowered), got %s", p)
+	}
+}
+
+func TestRequestProtoIgnoresXFPWithoutTrustProxy(t *testing.T) {
+	s := &server{trustProxy: false}
+
+	r := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	r.Header.Set("X-Forwarded-Proto", "https")
+	if p := s.requestProto(r); p != "http" {
+		t.Fatalf("expected http (ignore XFP when trustProxy=false), got %s", p)
 	}
 }
 
@@ -291,17 +303,19 @@ func TestWriteForwardedResponseZeroStatus(t *testing.T) {
 }
 
 func TestBuildPublicURL(t *testing.T) {
+	s := &server{trustProxy: false}
 	r := httptest.NewRequest(http.MethodGet, "http://gw.example.com/", nil)
-	url := buildPublicURL(r, "qs-abc", "example.com")
+	url := s.buildPublicURL(r, "qs-abc", "example.com")
 	if url != "http://qs-abc.example.com" {
 		t.Fatalf("unexpected URL: %s", url)
 	}
 }
 
 func TestBuildWSEndpoint(t *testing.T) {
+	s := &server{trustProxy: false}
 	r := httptest.NewRequest(http.MethodGet, "http://gw.example.com/", nil)
 	r.Host = "gw.example.com"
-	ep := buildWSEndpoint(r, "ses_123")
+	ep := s.buildWSEndpoint(r, "ses_123")
 	if !strings.HasPrefix(ep, "ws://") {
 		t.Fatalf("expected ws:// prefix, got %s", ep)
 	}
@@ -314,10 +328,11 @@ func TestBuildWSEndpoint(t *testing.T) {
 }
 
 func TestBuildWSEndpointHTTPS(t *testing.T) {
+	s := &server{trustProxy: true}
 	r := httptest.NewRequest(http.MethodGet, "https://gw.example.com/", nil)
 	r.Header.Set("X-Forwarded-Proto", "https")
 	r.Host = "gw.example.com"
-	ep := buildWSEndpoint(r, "ses_123")
+	ep := s.buildWSEndpoint(r, "ses_123")
 	if !strings.HasPrefix(ep, "wss://") {
 		t.Fatalf("expected wss:// prefix for HTTPS, got %s", ep)
 	}

@@ -308,8 +308,85 @@ func TestLongFingerprint(t *testing.T) {
 		t.Fatalf("request failed: %v", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for oversized request body, got %d", resp.StatusCode)
+	}
+}
+
+func TestReasonableFingerprint(t *testing.T) {
+	_, ts := newTestServer()
+	defer ts.Close()
+
+	fp := strings.Repeat("a", 64)
+	body, _ := json.Marshal(map[string]any{
+		"fingerprint": fp,
+		"port":        3000,
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("expected 201 even with long fingerprint, got %d", resp.StatusCode)
+		rb, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 201 for reasonable fingerprint, got %d body=%s", resp.StatusCode, string(rb))
+	}
+}
+
+func TestFingerprintTooLong(t *testing.T) {
+	_, ts := newTestServer()
+	defer ts.Close()
+
+	fp := strings.Repeat("a", 257)
+	body, _ := json.Marshal(map[string]any{
+		"fingerprint": fp,
+		"port":        3000,
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for fingerprint > 256 chars, got %d", resp.StatusCode)
+	}
+}
+
+func TestFingerprintExactLimit(t *testing.T) {
+	_, ts := newTestServer()
+	defer ts.Close()
+
+	fp := strings.Repeat("a", 256)
+	body, _ := json.Marshal(map[string]any{
+		"fingerprint": fp,
+		"port":        3000,
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		rb, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 201 for 256-char fingerprint, got %d body=%s", resp.StatusCode, string(rb))
+	}
+}
+
+func TestInvalidPortRange(t *testing.T) {
+	_, ts := newTestServer()
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]any{
+		"fingerprint": "test",
+		"port":        70000,
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for port > 65535, got %d", resp.StatusCode)
 	}
 }
 

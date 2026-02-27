@@ -327,6 +327,22 @@ class CliHelpTests(unittest.TestCase):
                     port=8000, gateway_url=None, local_host="0.0.0.0"
                 )
 
+    def test_cli_signal_pause_fallback(self) -> None:
+        """When signal.pause() is unavailable (Windows), falls back to _stop_flag.wait()."""
+        tunnel_mock = mock.MagicMock()
+        tunnel_mock.public_url = "https://qs-test.example.com"
+        tunnel_mock._stop_flag = mock.MagicMock()
+        tunnel_mock._stop_flag.wait.side_effect = KeyboardInterrupt
+
+        with mock.patch("sys.argv", ["demoit", "3000"]):
+            with mock.patch("demoit.client.expose", return_value=tunnel_mock):
+                with mock.patch("signal.pause", side_effect=AttributeError):
+                    try:
+                        run_cli()
+                    except (KeyboardInterrupt, SystemExit):
+                        pass
+                    tunnel_mock._stop_flag.wait.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # expose_app

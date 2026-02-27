@@ -472,6 +472,10 @@ def run_cli() -> None:
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
+    if sys.platform != "win32":
+        signal.signal(signal.SIGTERM, _shutdown)
 
-    signal.pause()
+    try:
+        signal.pause()
+    except AttributeError:
+        tunnel._stop_flag.wait()
