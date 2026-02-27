@@ -90,6 +90,7 @@ class Tunnel:
         self._thread: threading.Thread | None = None
         self._stop_flag = threading.Event()
         self._started = threading.Event()
+        self._connected = threading.Event()
         self._startup_error: Exception | None = None
 
     def start(self) -> "Tunnel":
@@ -143,6 +144,7 @@ class Tunnel:
                 close_timeout=3,
             ) as ws:
                 logger.info("tunnel ws connected, session=%s", session.session_id)
+                self._connected.set()
                 await ws.send(json.dumps({"type": "auth", "token": session.token}))
                 await self._event_loop(ws)
         except Exception as exc:
@@ -426,7 +428,7 @@ def expose(
     return tunnel.start()
 
 
-def expose_app(
+def share_app(
     app: Any,
     *,
     host: str = "127.0.0.1",
@@ -450,7 +452,7 @@ def expose_app(
         def root():
             return {"hello": "world"}
 
-        tunnel = godemo.expose_app(app)
+        tunnel = godemo.share_app(app)
         print(tunnel.public_url)
     """
     import socket
@@ -576,6 +578,8 @@ def run_cli() -> None:
     )
 
     tunnel = expose(port=args.port, gateway_url=args.gateway, local_host=args.host)
+
+    tunnel._connected.wait(timeout=10)
 
     print("\n  godemo tunnel active\n")
     print(f"  Public URL:  {tunnel.public_url}")

@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from godemo.client import (
     Tunnel,
     expose,
-    expose_app,
+    share_app,
     _looks_like_asgi,
     _machine_fingerprint,
     _fix_ws_scheme,
@@ -404,10 +404,10 @@ class CliHelpTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# expose_app
+# share_app
 # ---------------------------------------------------------------------------
 class ExposeAppTests(unittest.TestCase):
-    def test_expose_app_asgi_starts_uvicorn(self) -> None:
+    def test_share_app_asgi_starts_uvicorn(self) -> None:
         class FakeASGI:
             pass
 
@@ -421,11 +421,11 @@ class ExposeAppTests(unittest.TestCase):
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
                     with mock.patch("godemo.client._wait_for_port"):
-                        expose_app(app, gateway_url="http://gw.test")
+                        share_app(app, gateway_url="http://gw.test")
                         thread_instance.start.assert_called_once()
                         expose_mock.assert_called_once()
 
-    def test_expose_app_wsgi_starts_werkzeug(self) -> None:
+    def test_share_app_wsgi_starts_werkzeug(self) -> None:
         def wsgi_app(environ, start_response):
             pass
 
@@ -436,10 +436,10 @@ class ExposeAppTests(unittest.TestCase):
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
                     with mock.patch("godemo.client._wait_for_port"):
-                        expose_app(wsgi_app, gateway_url="http://gw.test")
+                        share_app(wsgi_app, gateway_url="http://gw.test")
                         thread_instance.start.assert_called_once()
 
-    def test_expose_app_picks_ephemeral_port(self) -> None:
+    def test_share_app_picks_ephemeral_port(self) -> None:
         def wsgi_app(environ, start_response):
             pass
 
@@ -450,14 +450,14 @@ class ExposeAppTests(unittest.TestCase):
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
                     with mock.patch("godemo.client._wait_for_port"):
-                        expose_app(wsgi_app, port=0, gateway_url="http://gw.test")
+                        share_app(wsgi_app, port=0, gateway_url="http://gw.test")
                         call_args = expose_mock.call_args
                         used_port = call_args.kwargs.get("port") or call_args[1].get(
                             "port"
                         )
                         self.assertGreater(used_port, 0)
 
-    def test_expose_app_with_explicit_port(self) -> None:
+    def test_share_app_with_explicit_port(self) -> None:
         def wsgi_app(environ, start_response):
             pass
 
@@ -468,7 +468,7 @@ class ExposeAppTests(unittest.TestCase):
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
                     with mock.patch("godemo.client._wait_for_port"):
-                        expose_app(wsgi_app, port=9999, gateway_url="http://gw.test")
+                        share_app(wsgi_app, port=9999, gateway_url="http://gw.test")
                         call_args = expose_mock.call_args
                         used_port = call_args.kwargs.get("port") or call_args[1].get(
                             "port"
@@ -511,14 +511,14 @@ class PackageExportTests(unittest.TestCase):
 
         self.assertTrue(hasattr(godemo, "Tunnel"))
         self.assertTrue(hasattr(godemo, "expose"))
-        self.assertTrue(hasattr(godemo, "expose_app"))
+        self.assertTrue(hasattr(godemo, "share_app"))
         self.assertTrue(hasattr(godemo, "run_cli"))
         self.assertTrue(hasattr(godemo, "DEFAULT_GATEWAY_URL"))
 
     def test_all_exports(self) -> None:
         import godemo
 
-        expected = {"Tunnel", "expose", "expose_app", "run_cli", "DEFAULT_GATEWAY_URL"}
+        expected = {"Tunnel", "expose", "share_app", "run_cli", "DEFAULT_GATEWAY_URL"}
         self.assertEqual(set(godemo.__all__), expected)
 
 

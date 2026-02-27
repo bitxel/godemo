@@ -30,7 +30,7 @@ app = FastAPI()
 def root():
     return {"hello": "world"}
 
-tunnel = godemo.expose_app(app)
+tunnel = godemo.share_app(app)
 print(tunnel.public_url)
 ```
 

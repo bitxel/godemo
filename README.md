@@ -59,11 +59,11 @@ app = FastAPI()
 def root():
     return {"hello": "world"}
 
-tunnel = godemo.expose_app(app)
+tunnel = godemo.share_app(app)
 print(tunnel.public_url)
 ```
 
-`expose_app()` auto-detects ASGI (FastAPI, Starlette, Litestar, Quart) vs WSGI (Flask, Django)
+`share_app()` auto-detects ASGI (FastAPI, Starlette, Litestar, Quart) vs WSGI (Flask, Django)
 and starts a local server automatically. Requires `pip install godemo[asgi]` or `pip install godemo[wsgi]`.
 
 ### API Reference
@@ -79,7 +79,7 @@ Create a tunnel to a local port that is already listening.
 | `local_host` | `str` | `"127.0.0.1"` | Local bind host |
 | `request_timeout_seconds` | `float` | `20.0` | Timeout for local HTTP requests |
 
-#### `godemo.expose_app(app, host="127.0.0.1", port=0, gateway_url=None, request_timeout_seconds=20.0) -> Tunnel`
+#### `godemo.share_app(app, host="127.0.0.1", port=0, gateway_url=None, request_timeout_seconds=20.0) -> Tunnel`
 
 Start a local server for a WSGI/ASGI app and create a tunnel.
 

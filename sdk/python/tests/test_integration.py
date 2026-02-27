@@ -198,5 +198,86 @@ class IntegrationTests(unittest.TestCase):
             tunnel.close()
 
 
+def _werkzeug_available() -> bool:
+    try:
+        import werkzeug  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+@unittest.skipUnless(_go_available(), "Go not installed, skipping integration tests")
+@unittest.skipUnless(_werkzeug_available(), "werkzeug not installed, skipping share_app tests")
+class ShareAppIntegrationTests(unittest.TestCase):
+    """End-to-end test for share_app with a WSGI app."""
+
+    gateway_proc: subprocess.Popen | None = None
+    gateway_port: int = 0
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.gateway_binary = _build_gateway()
+        cls.gateway_port = _find_free_port()
+        cls.gateway_proc = subprocess.Popen(
+            [str(cls.gateway_binary)],
+            env={
+                **os.environ,
+                "GODEMO_ADDR": f":{cls.gateway_port}",
+                "GODEMO_ROOT_DOMAIN": "localhost",
+            },
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        _wait_for_server("127.0.0.1", cls.gateway_port)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls.gateway_proc:
+            cls.gateway_proc.terminate()
+            cls.gateway_proc.wait(timeout=5)
+        binary = GATEWAY_DIR / "godemo-gateway-test"
+        if binary.exists():
+            binary.unlink()
+
+    def test_share_wsgi_app_end_to_end(self) -> None:
+        """share_app with a WSGI callable: auto-starts server and tunnels traffic."""
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+        from godemo.client import share_app
+
+        def wsgi_app(environ: dict, start_response):  # type: ignore[type-arg]
+            status = "200 OK"
+            body = json.dumps({"wsgi": True, "path": environ["PATH_INFO"]}).encode()
+            start_response(status, [("Content-Type", "application/json")])
+            return [body]
+
+        gateway_url = f"http://127.0.0.1:{self.gateway_port}"
+        tunnel = share_app(wsgi_app, gateway_url=gateway_url)
+        try:
+            self.assertIsNotNone(tunnel.public_url)
+
+            from urllib.parse import urlparse
+
+            host_header = urlparse(tunnel.public_url).hostname
+
+            test_url = f"http://127.0.0.1:{self.gateway_port}/wsgi-test"
+            last_err = None
+            for _ in range(20):
+                try:
+                    req = Request(test_url, headers={"Host": host_header})
+                    resp = urlopen(req, timeout=10)
+                    data = json.loads(resp.read())
+                    self.assertEqual(resp.status, 200)
+                    self.assertTrue(data["wsgi"])
+                    self.assertEqual(data["path"], "/wsgi-test")
+                    return
+                except URLError as exc:
+                    last_err = exc
+                    time.sleep(0.25)
+            self.fail(f"share_app tunnel request never succeeded: {last_err}")
+        finally:
+            tunnel.close()
+
+
 if __name__ == "__main__":
     unittest.main()

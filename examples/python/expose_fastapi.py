@@ -22,7 +22,7 @@ def status():
 
 
 if __name__ == "__main__":
-    tunnel = godemo.expose_app(app, gateway_url="http://127.0.0.1:8080")
+    tunnel = godemo.share_app(app, gateway_url="http://127.0.0.1:8080")
     print(f"Public URL: {tunnel.public_url}")
     try:
         input("Press Enter to stop...")
