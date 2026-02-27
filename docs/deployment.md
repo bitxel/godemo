@@ -106,9 +106,26 @@ Caddy handles TLS and WebSocket upgrades automatically.
 ```bash
 export GODEMO_ROOT_DOMAIN=0x0f.me
 export GODEMO_ADDR=:8080
+export GODEMO_TRUST_PROXY=true
+export GODEMO_TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128
 ```
 
 See the main [README](../README.md#gateway-environment-variables) for the full list.
+
+### Proxy Trust Safety
+
+`GODEMO_TRUST_PROXY=true` makes the gateway read `X-Forwarded-For` and
+`X-Forwarded-Proto`. Only enable this when all inbound traffic reaches the
+gateway through your trusted reverse proxy/load balancer.
+
+Use `GODEMO_TRUSTED_PROXY_CIDRS` to restrict which proxy source IPs are trusted:
+
+- Example single-node Nginx: `127.0.0.1/32`
+- Example private LB network: `10.0.0.0/8`
+- Multiple entries: comma-separated CIDRs or IPs
+
+If `GODEMO_TRUSTED_PROXY_CIDRS` is empty, all proxy source addresses are trusted
+when `GODEMO_TRUST_PROXY=true`.
 
 ## 7. Run
 

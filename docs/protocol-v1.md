@@ -5,9 +5,10 @@ This document defines the control/data protocol between `godemo` SDK clients and
 ## Transport
 
 - Control + data messages are multiplexed on one persistent WebSocket connection.
-- Gateway endpoint: `GET /api/v1/tunnel/ws?session_id=<id>&token=<token>`
+- Gateway endpoint: `GET /api/v1/tunnel/ws?session_id=<id>`
 - All messages are UTF-8 JSON objects.
 - Binary payloads are base64 encoded.
+- SDK must send an `auth` frame as the first message after websocket upgrade.
 
 ## Envelope
 
@@ -118,7 +119,18 @@ Application-level heartbeat in addition to WebSocket keepalive.
 }
 ```
 
-### 7. `error` (bidirectional)
+### 7. `auth` (sdk -> gateway)
+
+Authentication message sent immediately after WS connection is established.
+
+```json
+{
+  "type": "auth",
+  "token": "..."
+}
+```
+
+### 8. `error` (bidirectional)
 
 Protocol or forwarding level error.
 
@@ -167,7 +179,7 @@ When `fingerprint` is omitted, the gateway falls back to a random `qs-` prefixed
   "session_id": "ses_abc123",
   "subdomain": "dm-7f3a1b2c",
   "public_url": "https://dm-7f3a1b2c.0x0f.me",
-  "ws_endpoint": "wss://0x0f.me/api/v1/tunnel/ws?session_id=ses_abc123&token=...",
+  "ws_endpoint": "wss://0x0f.me/api/v1/tunnel/ws?session_id=ses_abc123",
   "token": "...",
   "ttl_seconds": 7200,
   "expires_at": "2026-02-25T12:00:00Z"

@@ -70,6 +70,13 @@ func TestListToSet(t *testing.T) {
 	}
 }
 
+func TestParseCIDRs(t *testing.T) {
+	nets := parseCIDRs("10.0.0.0/8,192.168.1.10,bad,2001:db8::/32")
+	if len(nets) != 3 {
+		t.Fatalf("expected 3 valid cidr entries, got %d", len(nets))
+	}
+}
+
 func TestHostWithoutPort(t *testing.T) {
 	cases := []struct {
 		input, want string
@@ -100,6 +107,25 @@ func TestRemoteIPTrustProxy(t *testing.T) {
 	r.Header.Set("X-Forwarded-For", " 203.0.113.1 , 10.0.0.1 ")
 	if ip := s.remoteIP(r); ip != "203.0.113.1" {
 		t.Fatalf("expected 203.0.113.1 from XFF with trustProxy=true, got %s", ip)
+	}
+}
+
+func TestRemoteIPTrustProxyWithCIDR(t *testing.T) {
+	s := &server{
+		trustProxy:        true,
+		trustedProxyCIDRs: parseCIDRs("10.0.0.0/8"),
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.0.0.1:12345"
+	r.Header.Set("X-Forwarded-For", "203.0.113.1")
+	if ip := s.remoteIP(r); ip != "203.0.113.1" {
+		t.Fatalf("expected XFF client ip from trusted proxy, got %s", ip)
+	}
+
+	r.RemoteAddr = "198.51.100.10:12345"
+	if ip := s.remoteIP(r); ip != "198.51.100.10" {
+		t.Fatalf("expected remote addr when proxy is untrusted, got %s", ip)
 	}
 }
 
@@ -173,6 +199,19 @@ func TestRequestProtoIgnoresXFPWithoutTrustProxy(t *testing.T) {
 	r.Header.Set("X-Forwarded-Proto", "https")
 	if p := s.requestProto(r); p != "http" {
 		t.Fatalf("expected http (ignore XFP when trustProxy=false), got %s", p)
+	}
+}
+
+func TestRequestProtoIgnoresXFPFromUntrustedProxy(t *testing.T) {
+	s := &server{
+		trustProxy:        true,
+		trustedProxyCIDRs: parseCIDRs("10.0.0.0/8"),
+	}
+	r := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	r.RemoteAddr = "198.51.100.10:4321"
+	r.Header.Set("X-Forwarded-Proto", "https")
+	if p := s.requestProto(r); p != "http" {
+		t.Fatalf("expected http when proxy is untrusted, got %s", p)
 	}
 }
 

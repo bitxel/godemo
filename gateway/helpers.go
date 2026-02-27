@@ -70,7 +70,7 @@ func hostWithoutPort(host string) string {
 }
 
 func (s *server) remoteIP(r *http.Request) string {
-	if s.trustProxy {
+	if s.trustProxy && s.isTrustedProxy(r.RemoteAddr) {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			parts := strings.Split(xff, ",")
 			return strings.TrimSpace(parts[0])
@@ -87,12 +87,32 @@ func (s *server) requestProto(r *http.Request) string {
 	if r.TLS != nil {
 		return "https"
 	}
-	if s.trustProxy {
+	if s.trustProxy && s.isTrustedProxy(r.RemoteAddr) {
 		if forwarded := r.Header.Get("X-Forwarded-Proto"); forwarded != "" {
 			return strings.ToLower(strings.TrimSpace(forwarded))
 		}
 	}
 	return "http"
+}
+
+func (s *server) isTrustedProxy(remoteAddr string) bool {
+	if len(s.trustedProxyCIDRs) == 0 {
+		return true
+	}
+	host := strings.TrimSpace(remoteAddr)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, network := range s.trustedProxyCIDRs {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func randHex(n int) string {
@@ -156,6 +176,33 @@ func listToSet(v string) map[string]struct{} {
 			continue
 		}
 		out[item] = struct{}{}
+	}
+	return out
+}
+
+func parseCIDRs(v string) []*net.IPNet {
+	out := make([]*net.IPNet, 0)
+	for _, item := range strings.Split(v, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, network, err := net.ParseCIDR(item); err == nil {
+			out = append(out, network)
+			continue
+		}
+		ip := net.ParseIP(item)
+		if ip == nil {
+			continue
+		}
+		maskBits := 32
+		if ip.To4() == nil {
+			maskBits = 128
+		}
+		out = append(out, &net.IPNet{
+			IP:   ip,
+			Mask: net.CIDRMask(maskBits, maskBits),
+		})
 	}
 	return out
 }

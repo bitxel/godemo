@@ -15,8 +15,8 @@ go test ./...
 
 ```bash
 cd sdk/python
-python3 -m pip install -e .
-python3 -m unittest discover -s tests
+python3 -m pip install -e ".[dev]"
+python3 -m pytest tests/ -v
 ```
 
 ## Pull Request Process

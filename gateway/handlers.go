@@ -90,6 +90,11 @@ func (s *server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	token := randHex(16)
 
 	exp := time.Now().Add(ttl)
+	requestLimit := s.maxConcurrentReq
+	if requestLimit <= 0 {
+		requestLimit = defaultMaxConcurrentReq
+	}
+
 	session := &tunnelSession{
 		id:           sessionID,
 		token:        token,
@@ -100,6 +105,7 @@ func (s *server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		expiresAt:    exp,
 		pending:      make(map[string]chan tunnelMessage),
 		wsConns:      make(map[string]*bridgeConn),
+		requestSlots: make(chan struct{}, requestLimit),
 	}
 	s.sessions[sessionID] = session
 	s.bySubdomain[subdomain] = sessionID
@@ -352,6 +358,12 @@ func (s *server) handlePublicRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handlePublicHTTP(w http.ResponseWriter, r *http.Request, session *tunnelSession) {
+	if !session.tryAcquireRequestSlot() {
+		writeJSON(w, http.StatusTooManyRequests, apiError{Error: "too many concurrent requests for this tunnel"})
+		return
+	}
+	defer session.releaseRequestSlot()
+
 	start := time.Now()
 	body, err := readRequestBody(r, s.maxHTTPBodyBytes)
 	if err != nil {

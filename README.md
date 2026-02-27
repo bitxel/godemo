@@ -26,6 +26,27 @@ Output:
 
 Anyone on the internet can now reach your local `:3000` via the public URL.
 
+## Local Development
+
+One-time setup:
+
+```bash
+make setup-python-dev
+```
+
+Run all tests:
+
+```bash
+make test
+```
+
+Gateway-only checks:
+
+```bash
+make test-go-race
+make test-go-cover
+```
+
 ### Path Whitelist
 
 Restrict which paths are accessible through the tunnel. Requests to non-whitelisted paths
@@ -197,9 +218,11 @@ See [`docs/deployment.md`](docs/deployment.md) for full Nginx/Caddy/systemd setu
 | `GODEMO_REQUEST_TIMEOUT_SECONDS` | `20` | HTTP request timeout |
 | `GODEMO_MAX_SESSIONS_PER_IP` | `5` | Max active sessions per IP |
 | `GODEMO_MAX_CREATE_PER_MINUTE` | `20` | Session creation rate limit |
+| `GODEMO_MAX_CONCURRENT_REQUESTS_PER_SESSION` | `32` | Max concurrent forwarded HTTP requests per tunnel session |
 | `GODEMO_DENY_IPS` | (empty) | Comma-separated IP deny list |
 | `GODEMO_ALLOW_IPS` | (empty) | Comma-separated IP allow list |
-| `GODEMO_TRUST_PROXY` | `false` | Trust `X-Forwarded-Proto` header |
+| `GODEMO_TRUST_PROXY` | `false` | Trust proxy-provided `X-Forwarded-For` and `X-Forwarded-Proto` headers |
+| `GODEMO_TRUSTED_PROXY_CIDRS` | (empty) | Comma-separated trusted proxy CIDRs/IPs used when `GODEMO_TRUST_PROXY=true` |
 
 ### SDK Environment Variables
 

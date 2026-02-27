@@ -38,6 +38,8 @@ type tunnelSession struct {
 
 	wsConns   map[string]*bridgeConn
 	wsConnsMu sync.Mutex
+
+	requestSlots chan struct{}
 }
 
 func (s *tunnelSession) isExpired(now time.Time) bool {
@@ -138,5 +140,27 @@ func (s *tunnelSession) failAllPending(msg tunnelMessage) {
 		ch <- msg
 		close(ch)
 		delete(s.pending, id)
+	}
+}
+
+func (s *tunnelSession) tryAcquireRequestSlot() bool {
+	if s.requestSlots == nil {
+		return true
+	}
+	select {
+	case s.requestSlots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *tunnelSession) releaseRequestSlot() {
+	if s.requestSlots == nil {
+		return
+	}
+	select {
+	case <-s.requestSlots:
+	default:
 	}
 }

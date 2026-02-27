@@ -16,6 +16,10 @@ dependencies = [
 [project.optional-dependencies]
 asgi = ["uvicorn>=0.29.0"]
 wsgi = ["werkzeug>=3.0.0"]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.6.0"
+]
 
 [project.scripts]
 godemo = "godemo:run_cli"

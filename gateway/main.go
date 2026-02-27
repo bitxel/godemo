@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +23,7 @@ const (
 	defaultRequestTimeout     = 20 * time.Second
 	defaultMaxSessionsPerIP   = 5
 	defaultCreatePerMinute    = 20
+	defaultMaxConcurrentReq   = 32
 	defaultMaxHTTPBodyBytes   = 8 * 1024 * 1024
 	defaultMaxWSMessageBytes  = 8 * 1024 * 1024
 	defaultCleanupIntervalSec = 30
@@ -85,12 +87,14 @@ type server struct {
 	requestTimeout   time.Duration
 	maxSessionsPerIP int
 	createPerMinute  int
+	maxConcurrentReq int
 	maxHTTPBodyBytes int64
 	maxWSMessageSize int64
 	trustProxy       bool
 
-	allowIPs map[string]struct{}
-	denyIPs  map[string]struct{}
+	allowIPs          map[string]struct{}
+	denyIPs           map[string]struct{}
+	trustedProxyCIDRs []*net.IPNet
 
 	mu           sync.RWMutex
 	sessions     map[string]*tunnelSession
@@ -147,15 +151,19 @@ func newServerFromEnv() *server {
 		requestTimeout:   time.Duration(requestTimeout) * time.Second,
 		maxSessionsPerIP: envInt("GODEMO_MAX_SESSIONS_PER_IP", defaultMaxSessionsPerIP),
 		createPerMinute:  envInt("GODEMO_MAX_CREATE_PER_MINUTE", defaultCreatePerMinute),
+		maxConcurrentReq: envInt("GODEMO_MAX_CONCURRENT_REQUESTS_PER_SESSION", defaultMaxConcurrentReq),
 		maxHTTPBodyBytes: int64(envInt("GODEMO_MAX_HTTP_BODY_BYTES", defaultMaxHTTPBodyBytes)),
 		maxWSMessageSize: int64(envInt("GODEMO_MAX_WS_MESSAGE_BYTES", defaultMaxWSMessageBytes)),
 		trustProxy:       envString("GODEMO_TRUST_PROXY", "false") == "true",
 		allowIPs:         listToSet(envString("GODEMO_ALLOW_IPS", "")),
 		denyIPs:          listToSet(envString("GODEMO_DENY_IPS", "")),
-		sessions:         make(map[string]*tunnelSession),
-		bySubdomain:      make(map[string]string),
-		ipSessionNum:     make(map[string]int),
-		ipCreates:        make(map[string]*createWindow),
+		trustedProxyCIDRs: parseCIDRs(
+			envString("GODEMO_TRUSTED_PROXY_CIDRS", ""),
+		),
+		sessions:     make(map[string]*tunnelSession),
+		bySubdomain:  make(map[string]string),
+		ipSessionNum: make(map[string]int),
+		ipCreates:    make(map[string]*createWindow),
 	}
 }
 

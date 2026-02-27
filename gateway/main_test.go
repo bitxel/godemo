@@ -185,6 +185,76 @@ func TestPublicHTTPForwarding(t *testing.T) {
 	<-done
 }
 
+func TestPublicHTTPConcurrentLimitPerSession(t *testing.T) {
+	s, ts := newTestServer()
+	defer ts.Close()
+	s.maxConcurrentReq = 1
+
+	session := createSession(t, ts.URL)
+	conn := dialSDKWS(t, ts.URL, session)
+	defer conn.Close()
+
+	firstReqSeen := make(chan tunnelMessage, 1)
+	releaseFirst := make(chan struct{})
+	sdkDone := make(chan struct{})
+	go func() {
+		defer close(sdkDone)
+		var req tunnelMessage
+		if err := conn.ReadJSON(&req); err != nil {
+			t.Errorf("read first forwarded request failed: %v", err)
+			return
+		}
+		firstReqSeen <- req
+		<-releaseFirst
+		resp := tunnelMessage{
+			Type:      "response",
+			RequestID: req.RequestID,
+			Status:    http.StatusOK,
+			Headers:   map[string][]string{"content-type": {"text/plain"}},
+			BodyB64:   base64.StdEncoding.EncodeToString([]byte("ok-first")),
+		}
+		if err := conn.WriteJSON(resp); err != nil {
+			t.Errorf("write first response failed: %v", err)
+		}
+	}()
+
+	firstResult := make(chan *http.Response, 1)
+	firstErr := make(chan error, 1)
+	go func() {
+		req1, _ := http.NewRequest(http.MethodGet, ts.URL+"/slow", nil)
+		req1.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+		resp, err := http.DefaultClient.Do(req1)
+		firstErr <- err
+		firstResult <- resp
+	}()
+
+	<-firstReqSeen
+
+	req2, _ := http.NewRequest(http.MethodGet, ts.URL+"/second", nil)
+	req2.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("second request failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusTooManyRequests {
+		body, _ := io.ReadAll(resp2.Body)
+		t.Fatalf("expected 429 for concurrent limit, got %d body=%s", resp2.StatusCode, string(body))
+	}
+
+	close(releaseFirst)
+	<-sdkDone
+
+	if err := <-firstErr; err != nil {
+		t.Fatalf("first request failed: %v", err)
+	}
+	resp1 := <-firstResult
+	defer resp1.Body.Close()
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("expected first request to complete with 200, got %d", resp1.StatusCode)
+	}
+}
+
 func TestPublicWebSocketForwarding(t *testing.T) {
 	s, ts := newTestServer()
 	defer ts.Close()

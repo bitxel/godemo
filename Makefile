@@ -1,4 +1,4 @@
-.PHONY: test test-go test-python test-go-race test-go-cover lint clean
+.PHONY: test test-go test-python test-go-race test-go-cover lint clean setup-python-dev
 
 test: test-go test-python
 
@@ -15,6 +15,9 @@ test-go-cover:
 		go tool cover -func=coverage.out | grep total
 
 PYTHON ?= python3
+
+setup-python-dev:
+	cd sdk/python && $(PYTHON) -m pip install -e ".[dev]"
 
 test-python:
 	cd sdk/python && $(PYTHON) -m pytest tests/ -v
