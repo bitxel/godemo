@@ -25,6 +25,7 @@ func newTestServer() (*server, *httptest.Server) {
 		createPerMinute:  100,
 		maxHTTPBodyBytes: defaultMaxHTTPBodyBytes,
 		maxWSMessageSize: defaultMaxWSMessageBytes,
+		trustProxy:       false,
 		allowIPs:         map[string]struct{}{},
 		denyIPs:          map[string]struct{}{},
 		sessions:         make(map[string]*tunnelSession),
@@ -60,6 +61,21 @@ func createSession(t *testing.T, baseURL string) createSessionResponse {
 		t.Fatalf("decode session response failed: %v", err)
 	}
 	return out
+}
+
+func dialSDKWS(t *testing.T, tsURL string, session createSessionResponse) *websocket.Conn {
+	t.Helper()
+	wsURL := "ws" + strings.TrimPrefix(tsURL, "http") + "/api/v1/tunnel/ws?session_id=" + session.SessionID
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial sdk ws failed: %v", err)
+	}
+	authMsg := tunnelMessage{Type: "auth", Token: session.Token}
+	if err := conn.WriteJSON(authMsg); err != nil {
+		conn.Close()
+		t.Fatalf("write auth message failed: %v", err)
+	}
+	return conn
 }
 
 func TestSessionLifecycle_CreateHeartbeatDelete(t *testing.T) {
@@ -123,10 +139,7 @@ func TestPublicHTTPForwarding(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 	defer conn.Close()
 
 	done := make(chan struct{})
@@ -145,7 +158,7 @@ func TestPublicHTTPForwarding(t *testing.T) {
 			Type:      "response",
 			RequestID: req.RequestID,
 			Status:    http.StatusOK,
-			Headers:   map[string][]string{"content-type": []string{"text/plain"}},
+			Headers:   map[string][]string{"content-type": {"text/plain"}},
 			BodyB64:   base64.StdEncoding.EncodeToString([]byte("forwarded-ok")),
 		}
 		if err := conn.WriteJSON(resp); err != nil {
@@ -177,11 +190,7 @@ func TestPublicWebSocketForwarding(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-
-	sdkConn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	sdkConn := dialSDKWS(t, ts.URL, session)
 	defer sdkConn.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
@@ -398,5 +407,41 @@ func TestNoFingerprintFallbackRandom(t *testing.T) {
 	}
 	if s1.Subdomain == s2.Subdomain {
 		t.Fatalf("random subdomains should differ: both got %s", s1.Subdomain)
+	}
+}
+
+func TestWSEndpointDoesNotContainToken(t *testing.T) {
+	_, ts := newTestServer()
+	defer ts.Close()
+
+	session := createSession(t, ts.URL)
+	if strings.Contains(session.WSEndpoint, "token=") {
+		t.Fatalf("WSEndpoint should NOT contain token parameter: %s", session.WSEndpoint)
+	}
+	if !strings.Contains(session.WSEndpoint, "session_id=") {
+		t.Fatalf("WSEndpoint should contain session_id: %s", session.WSEndpoint)
+	}
+}
+
+func TestWSAuthTimeout(t *testing.T) {
+	_, ts := newTestServer()
+	defer ts.Close()
+
+	session := createSession(t, ts.URL)
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/tunnel/ws?session_id=" + session.SessionID
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	_ = conn.WriteJSON(tunnelMessage{Type: "auth", Token: "wrong-token"})
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var errMsg tunnelMessage
+	if err := conn.ReadJSON(&errMsg); err != nil {
+		t.Fatalf("expected error message, got read error: %v", err)
+	}
+	if errMsg.Type != "error" {
+		t.Fatalf("expected error type, got %s", errMsg.Type)
 	}
 }

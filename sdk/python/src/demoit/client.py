@@ -112,6 +112,7 @@ class Tunnel:
             ping_timeout=20,
             close_timeout=3,
         ) as ws:
+            await ws.send(json.dumps({"type": "auth", "token": session.token}))
             await self._event_loop(ws)
 
         await self._delete_session()
@@ -390,8 +391,7 @@ def expose_app(
     server_thread = _threading.Thread(target=_run_server, daemon=True, name="demoit-app-server")
     server_thread.start()
 
-    import time as _time
-    _time.sleep(0.3)
+    _wait_for_port(host, port)
 
     return expose(
         port=port,
@@ -401,17 +401,40 @@ def expose_app(
     )
 
 
+def _wait_for_port(host: str, port: int, timeout: float = 5.0) -> None:
+    import socket
+    import time as _time
+    deadline = _time.monotonic() + timeout
+    interval = 0.05
+    while _time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                return
+        except OSError:
+            _time.sleep(interval)
+            interval = min(interval * 2, 0.5)
+    raise RuntimeError(f"local server on {host}:{port} did not start within {timeout}s")
+
+
 def _looks_like_asgi(app: Any) -> bool:
+    import asyncio
     import inspect
-    if hasattr(app, "__call__"):
-        sig = inspect.signature(app.__call__ if hasattr(app, "__call__") else app)
-        params = list(sig.parameters)
-        if len(params) >= 3:
-            names = {p.lower() for p in params[:3]}
-            if names & {"scope", "receive", "send"}:
-                return True
-    if type(app).__module__.startswith(("fastapi", "starlette", "litestar", "quart")):
+
+    mod = getattr(type(app), "__module__", "") or ""
+    if mod.startswith(("fastapi", "starlette", "litestar", "quart")):
         return True
+
+    callable_obj = app if inspect.isfunction(app) else (app.__call__ if hasattr(app, "__call__") else app)
+    try:
+        sig = inspect.signature(callable_obj)
+    except (ValueError, TypeError):
+        return False
+    params = list(sig.parameters)
+    if len(params) >= 3:
+        names = {p.lower() for p in params[:3]}
+        if names & {"scope", "receive", "send"}:
+            return True
+
     return False
 
 

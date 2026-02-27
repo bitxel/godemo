@@ -77,6 +77,7 @@ DEMOIT_GATEWAY_URL=https://tunnel.yourdomain.com demoit 3000
 | `DEMOIT_MAX_CREATE_PER_MINUTE` | `20` |
 | `DEMOIT_DENY_IPS` | (empty) |
 | `DEMOIT_ALLOW_IPS` | (empty) |
+| `DEMOIT_TRUST_PROXY` | `false` |
 
 ## License
 

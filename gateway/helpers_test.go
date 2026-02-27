@@ -88,21 +88,37 @@ func TestHostWithoutPort(t *testing.T) {
 	}
 }
 
-func TestRemoteIP(t *testing.T) {
+func TestRemoteIPTrustProxy(t *testing.T) {
+	s := &server{trustProxy: true}
+
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "10.0.0.1:12345"
-	if ip := remoteIP(r); ip != "10.0.0.1" {
+	if ip := s.remoteIP(r); ip != "10.0.0.1" {
 		t.Fatalf("expected 10.0.0.1 from RemoteAddr, got %s", ip)
 	}
 
 	r.Header.Set("X-Forwarded-For", " 203.0.113.1 , 10.0.0.1 ")
-	if ip := remoteIP(r); ip != "203.0.113.1" {
-		t.Fatalf("expected 203.0.113.1 from XFF, got %s", ip)
+	if ip := s.remoteIP(r); ip != "203.0.113.1" {
+		t.Fatalf("expected 203.0.113.1 from XFF with trustProxy=true, got %s", ip)
 	}
+}
 
-	r2 := httptest.NewRequest(http.MethodGet, "/", nil)
-	r2.RemoteAddr = "badaddr"
-	if ip := remoteIP(r2); ip != "badaddr" {
+func TestRemoteIPNoTrustProxy(t *testing.T) {
+	s := &server{trustProxy: false}
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.0.0.1:12345"
+	r.Header.Set("X-Forwarded-For", "203.0.113.1")
+	if ip := s.remoteIP(r); ip != "10.0.0.1" {
+		t.Fatalf("expected 10.0.0.1 (ignore XFF when trustProxy=false), got %s", ip)
+	}
+}
+
+func TestRemoteIPBadAddr(t *testing.T) {
+	s := &server{trustProxy: false}
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "badaddr"
+	if ip := s.remoteIP(r); ip != "badaddr" {
 		t.Fatalf("expected raw badaddr fallback, got %s", ip)
 	}
 }
@@ -212,8 +228,8 @@ func TestDeterministicSubdomain(t *testing.T) {
 	if !strings.HasPrefix(s1, "dm-") {
 		t.Fatalf("expected dm- prefix, got %s", s1)
 	}
-	if len(s1) != 11 { // "dm-" + 8 hex chars
-		t.Fatalf("expected 11 chars, got %d (%s)", len(s1), s1)
+	if len(s1) != 19 {
+		t.Fatalf("expected 19 chars (dm- + 16 hex), got %d (%s)", len(s1), s1)
 	}
 
 	s3 := deterministicSubdomain("fp1", 8080)
@@ -269,8 +285,8 @@ func TestWriteForwardedResponse(t *testing.T) {
 func TestWriteForwardedResponseZeroStatus(t *testing.T) {
 	w := httptest.NewRecorder()
 	writeForwardedResponse(w, 0, nil, []byte("ok"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status 0 should default to 200, got %d", w.Code)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status 0 should default to 502, got %d", w.Code)
 	}
 }
 
@@ -285,15 +301,15 @@ func TestBuildPublicURL(t *testing.T) {
 func TestBuildWSEndpoint(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "http://gw.example.com/", nil)
 	r.Host = "gw.example.com"
-	ep := buildWSEndpoint(r, "ses_123", "tok_456")
+	ep := buildWSEndpoint(r, "ses_123")
 	if !strings.HasPrefix(ep, "ws://") {
 		t.Fatalf("expected ws:// prefix, got %s", ep)
 	}
 	if !strings.Contains(ep, "session_id=ses_123") {
 		t.Fatalf("expected session_id in endpoint: %s", ep)
 	}
-	if !strings.Contains(ep, "token=tok_456") {
-		t.Fatalf("expected token in endpoint: %s", ep)
+	if strings.Contains(ep, "token=") {
+		t.Fatalf("token should NOT be in WS endpoint URL: %s", ep)
 	}
 }
 
@@ -301,8 +317,44 @@ func TestBuildWSEndpointHTTPS(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "https://gw.example.com/", nil)
 	r.Header.Set("X-Forwarded-Proto", "https")
 	r.Host = "gw.example.com"
-	ep := buildWSEndpoint(r, "ses_123", "tok_456")
+	ep := buildWSEndpoint(r, "ses_123")
 	if !strings.HasPrefix(ep, "wss://") {
 		t.Fatalf("expected wss:// prefix for HTTPS, got %s", ep)
+	}
+}
+
+func TestSanitizeQuery(t *testing.T) {
+	cases := []struct {
+		input, want string
+	}{
+		{"", ""},
+		{"foo=bar", "foo=bar"},
+		{"token=secret123", "token=***"},
+		{"key=abc&other=ok", "key=***&other=ok"},
+		{"TOKEN=ABC&password=xyz", "TOKEN=***&password=***"},
+		{"a=1&secret=s&b=2", "a=1&secret=***&b=2"},
+		{"noeq", "noeq"},
+	}
+	for _, tc := range cases {
+		got := sanitizeQuery(tc.input)
+		if got != tc.want {
+			t.Errorf("sanitizeQuery(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestDecIPSessionCount(t *testing.T) {
+	s := &server{ipSessionNum: map[string]int{"1.2.3.4": 3, "5.6.7.8": 1}}
+	s.decIPSessionCount("1.2.3.4")
+	if s.ipSessionNum["1.2.3.4"] != 2 {
+		t.Fatalf("expected 2, got %d", s.ipSessionNum["1.2.3.4"])
+	}
+	s.decIPSessionCount("5.6.7.8")
+	if _, exists := s.ipSessionNum["5.6.7.8"]; exists {
+		t.Fatal("zero-count IP should be deleted from map")
+	}
+	s.decIPSessionCount("9.9.9.9")
+	if _, exists := s.ipSessionNum["9.9.9.9"]; exists {
+		t.Fatal("negative-count IP should be deleted from map")
 	}
 }

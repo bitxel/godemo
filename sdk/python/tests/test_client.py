@@ -222,14 +222,12 @@ class AsgiDetectionTests(unittest.TestCase):
             return None
         self.assertFalse(_looks_like_asgi(handler))
 
-    def test_plain_async_function_not_detected_as_asgi(self) -> None:
-        """Plain async functions aren't detected because __call__ signature
-        differs from the function's own signature. This documents current behavior."""
+    def test_plain_async_function_detected_as_asgi(self) -> None:
+        """Plain async functions with (scope, receive, send) are now correctly
+        detected via iscoroutinefunction + param count check."""
         async def asgi_app(scope, receive, send):
             pass
-        # Current implementation checks app.__call__ which for plain functions
-        # gives a method-wrapper with (*args, **kwargs) signature
-        self.assertFalse(_looks_like_asgi(asgi_app))
+        self.assertTrue(_looks_like_asgi(asgi_app))
 
     def test_two_param_callable_not_asgi(self) -> None:
         async def handler(scope, receive):
@@ -346,7 +344,7 @@ class ExposeAppTests(unittest.TestCase):
                 with mock.patch("threading.Thread") as thread_mock:
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
-                    with mock.patch("time.sleep"):
+                    with mock.patch("demoit.client._wait_for_port"):
                         result = expose_app(app, gateway_url="http://gw.test")
                         thread_instance.start.assert_called_once()
                         expose_mock.assert_called_once()
@@ -361,7 +359,7 @@ class ExposeAppTests(unittest.TestCase):
                 with mock.patch("threading.Thread") as thread_mock:
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
-                    with mock.patch("time.sleep"):
+                    with mock.patch("demoit.client._wait_for_port"):
                         result = expose_app(wsgi_app, gateway_url="http://gw.test")
                         thread_instance.start.assert_called_once()
 
@@ -375,7 +373,7 @@ class ExposeAppTests(unittest.TestCase):
                 with mock.patch("threading.Thread") as thread_mock:
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
-                    with mock.patch("time.sleep"):
+                    with mock.patch("demoit.client._wait_for_port"):
                         result = expose_app(wsgi_app, port=0, gateway_url="http://gw.test")
                         call_args = expose_mock.call_args
                         used_port = call_args.kwargs.get("port") or call_args[1].get("port")
@@ -391,7 +389,7 @@ class ExposeAppTests(unittest.TestCase):
                 with mock.patch("threading.Thread") as thread_mock:
                     thread_instance = mock.MagicMock()
                     thread_mock.return_value = thread_instance
-                    with mock.patch("time.sleep"):
+                    with mock.patch("demoit.client._wait_for_port"):
                         result = expose_app(wsgi_app, port=9999, gateway_url="http://gw.test")
                         call_args = expose_mock.call_args
                         used_port = call_args.kwargs.get("port") or call_args[1].get("port")

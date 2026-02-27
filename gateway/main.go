@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -13,9 +14,11 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -31,6 +34,7 @@ const (
 	defaultMaxHTTPBodyBytes   = 8 * 1024 * 1024
 	defaultMaxWSMessageBytes  = 8 * 1024 * 1024
 	defaultCleanupIntervalSec = 30
+	wsAuthTimeout             = 5 * time.Second
 )
 
 type tunnelMessage struct {
@@ -49,6 +53,7 @@ type tunnelMessage struct {
 	Reason       string              `json:"reason,omitempty"`
 	ErrorCode    string              `json:"code_name,omitempty"`
 	Message      string              `json:"message,omitempty"`
+	Token        string              `json:"token,omitempty"`
 }
 
 type createSessionRequest struct {
@@ -207,6 +212,7 @@ type server struct {
 	createPerMinute  int
 	maxHTTPBodyBytes int64
 	maxWSMessageSize int64
+	trustProxy       bool
 
 	allowIPs map[string]struct{}
 	denyIPs  map[string]struct{}
@@ -234,10 +240,25 @@ func main() {
 
 	go s.cleanupExpiredLoop()
 
+	srv := &http.Server{Addr: s.addr, Handler: s.withLogging(mux)}
+
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		sig := <-sigCh
+		log.Printf("received signal %v, shutting down gracefully...", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("shutdown error: %v", err)
+		}
+	}()
+
 	log.Printf("demoit gateway listening on %s with root domain %s", s.addr, s.rootDomain)
-	if err := http.ListenAndServe(s.addr, s.withLogging(mux)); err != nil {
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("listen failed: %v", err)
 	}
+	log.Println("gateway stopped")
 }
 
 func newServerFromEnv() *server {
@@ -253,6 +274,7 @@ func newServerFromEnv() *server {
 		createPerMinute:  envInt("DEMOIT_MAX_CREATE_PER_MINUTE", defaultCreatePerMinute),
 		maxHTTPBodyBytes: int64(envInt("DEMOIT_MAX_HTTP_BODY_BYTES", defaultMaxHTTPBodyBytes)),
 		maxWSMessageSize: int64(envInt("DEMOIT_MAX_WS_MESSAGE_BYTES", defaultMaxWSMessageBytes)),
+		trustProxy:       envString("DEMOIT_TRUST_PROXY", "false") == "true",
 		allowIPs:         listToSet(envString("DEMOIT_ALLOW_IPS", "")),
 		denyIPs:          listToSet(envString("DEMOIT_DENY_IPS", "")),
 		sessions:         make(map[string]*tunnelSession),
@@ -266,7 +288,7 @@ func (s *server) withLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		log.Printf("%s %s host=%s remote=%s took=%s", r.Method, r.URL.Path, r.Host, remoteIP(r), time.Since(start))
+		log.Printf("%s %s host=%s remote=%s took=%s", r.Method, r.URL.Path, r.Host, s.remoteIP(r), time.Since(start))
 	})
 }
 
@@ -280,7 +302,7 @@ func (s *server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := remoteIP(r)
+	ip := s.remoteIP(r)
 	if !s.ipAllowed(ip) {
 		writeJSON(w, http.StatusForbidden, apiError{Error: "ip blocked"})
 		return
@@ -291,7 +313,7 @@ func (s *server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req createSessionRequest
-	if r.ContentLength > 0 {
+	if r.Body != nil && r.ContentLength != 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, apiError{Error: "invalid request body"})
 			return
@@ -311,7 +333,7 @@ func (s *server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	subdomain := "qs-" + randHex(4)
+	subdomain := "qs-" + randHex(8)
 	fingerprint := req.Fingerprint
 
 	if fingerprint != "" && req.Port > 0 {
@@ -345,7 +367,7 @@ func (s *server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	s.bySubdomain[subdomain] = sessionID
 	s.ipSessionNum[ip]++
 
-	wsEndpoint := buildWSEndpoint(r, sessionID, token)
+	wsEndpoint := buildWSEndpoint(r, sessionID)
 	publicURL := buildPublicURL(r, subdomain, s.rootDomain)
 	writeJSON(w, http.StatusCreated, createSessionResponse{
 		SessionID:  sessionID,
@@ -431,7 +453,7 @@ func (s *server) handleDeleteSession(w http.ResponseWriter, r *http.Request, ses
 	}
 	delete(s.sessions, sessionID)
 	delete(s.bySubdomain, session.subdomain)
-	s.ipSessionNum[session.clientIP]--
+	s.decIPSessionCount(session.clientIP)
 	s.mu.Unlock()
 
 	conn := session.getConn()
@@ -451,9 +473,8 @@ func (s *server) handleTunnelWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionID := r.URL.Query().Get("session_id")
-	token := r.URL.Query().Get("token")
-	if sessionID == "" || token == "" {
-		writeJSON(w, http.StatusBadRequest, apiError{Error: "session_id and token required"})
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, apiError{Error: "session_id required"})
 		return
 	}
 
@@ -462,10 +483,6 @@ func (s *server) handleTunnelWS(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 	if !ok {
 		writeJSON(w, http.StatusNotFound, apiError{Error: "session not found"})
-		return
-	}
-	if token != session.token {
-		writeJSON(w, http.StatusUnauthorized, apiError{Error: "invalid token"})
 		return
 	}
 	if session.isExpired(time.Now()) {
@@ -479,6 +496,21 @@ func (s *server) handleTunnelWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conn.SetReadLimit(s.maxWSMessageSize)
+
+	_ = conn.SetReadDeadline(time.Now().Add(wsAuthTimeout))
+	var authMsg tunnelMessage
+	if err := conn.ReadJSON(&authMsg); err != nil || authMsg.Type != "auth" {
+		_ = conn.WriteJSON(tunnelMessage{Type: "error", Message: "auth message required within 5s"})
+		_ = conn.Close()
+		return
+	}
+	_ = conn.SetReadDeadline(time.Time{})
+
+	if authMsg.Token != session.token {
+		_ = conn.WriteJSON(tunnelMessage{Type: "error", Message: "invalid token"})
+		_ = conn.Close()
+		return
+	}
 
 	prev := session.getConn()
 	if prev != nil {
@@ -599,14 +631,14 @@ func (s *server) handlePublicHTTP(w http.ResponseWriter, r *http.Request, sessio
 	}
 	msg.Headers["x-forwarded-host"] = []string{r.Host}
 	msg.Headers["x-forwarded-proto"] = []string{requestProto(r)}
-	msg.Headers["x-forwarded-for"] = []string{remoteIP(r)}
+	msg.Headers["x-forwarded-for"] = []string{s.remoteIP(r)}
 	log.Printf(
 		"tunnel request session=%s req=%s method=%s path=%s query=%s body_bytes=%d host=%s",
 		session.id,
 		reqID,
 		r.Method,
 		r.URL.Path,
-		r.URL.RawQuery,
+		sanitizeQuery(r.URL.RawQuery),
 		len(body),
 		r.Host,
 	)
@@ -733,7 +765,7 @@ func (s *server) cleanupExpiredLoop() {
 			}
 			delete(s.sessions, id)
 			delete(s.bySubdomain, session.subdomain)
-			s.ipSessionNum[session.clientIP]--
+			s.decIPSessionCount(session.clientIP)
 			expired = append(expired, session)
 		}
 		s.mu.Unlock()
@@ -793,15 +825,22 @@ func (s *server) allowCreate(ip string) bool {
 	return true
 }
 
+func (s *server) decIPSessionCount(ip string) {
+	s.ipSessionNum[ip]--
+	if s.ipSessionNum[ip] <= 0 {
+		delete(s.ipSessionNum, ip)
+	}
+}
+
 func deterministicSubdomain(fingerprint string, port int) string {
 	h := sha256.Sum256([]byte(fmt.Sprintf("%s:%d", fingerprint, port)))
-	return "dm-" + hex.EncodeToString(h[:4])
+	return "dm-" + hex.EncodeToString(h[:8])
 }
 
 func (s *server) removeSessionLocked(sessionID string, session *tunnelSession) {
 	delete(s.sessions, sessionID)
 	delete(s.bySubdomain, session.subdomain)
-	s.ipSessionNum[session.clientIP]--
+	s.decIPSessionCount(session.clientIP)
 	if conn := session.getConn(); conn != nil {
 		_ = conn.Close()
 	}
@@ -811,13 +850,13 @@ func (s *server) removeSessionLocked(sessionID string, session *tunnelSession) {
 	}()
 }
 
-func buildWSEndpoint(r *http.Request, sessionID, token string) string {
+func buildWSEndpoint(r *http.Request, sessionID string) string {
 	scheme := "ws"
 	if requestProto(r) == "https" {
 		scheme = "wss"
 	}
 	host := r.Host
-	return fmt.Sprintf("%s://%s/api/v1/tunnel/ws?session_id=%s&token=%s", scheme, host, sessionID, token)
+	return fmt.Sprintf("%s://%s/api/v1/tunnel/ws?session_id=%s", scheme, host, sessionID)
 }
 
 func buildPublicURL(r *http.Request, subdomain, rootDomain string) string {
@@ -858,7 +897,7 @@ func writeForwardedResponse(w http.ResponseWriter, status int, headers map[strin
 		}
 	}
 	if status == 0 {
-		status = http.StatusOK
+		status = http.StatusBadGateway
 	}
 	w.WriteHeader(status)
 	_, _ = w.Write(body)
@@ -888,10 +927,12 @@ func hostWithoutPort(host string) string {
 	return h
 }
 
-func remoteIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		return strings.TrimSpace(parts[0])
+func (s *server) remoteIP(r *http.Request) string {
+	if s.trustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			return strings.TrimSpace(parts[0])
+		}
 	}
 	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
 	if err != nil {
@@ -906,6 +947,26 @@ func randHex(n int) string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(buf)
+}
+
+var sensitiveQueryKeys = map[string]struct{}{
+	"token": {}, "key": {}, "secret": {}, "password": {},
+}
+
+func sanitizeQuery(rawQuery string) string {
+	if rawQuery == "" {
+		return ""
+	}
+	pairs := strings.Split(rawQuery, "&")
+	for i, pair := range pairs {
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) == 2 {
+			if _, ok := sensitiveQueryKeys[strings.ToLower(kv[0])]; ok {
+				pairs[i] = kv[0] + "=***"
+			}
+		}
+	}
+	return strings.Join(pairs, "&")
 }
 
 func envString(key, fallback string) string {

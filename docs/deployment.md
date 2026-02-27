@@ -6,7 +6,7 @@ This guide covers deploying the `demoit-gateway` binary behind a reverse proxy w
 
 - A VPS with a public IP
 - A domain (e.g. `0x0f.me`) with DNS access
-- Go 1.21+ for building the binary
+- Go 1.22+ for building the binary
 
 ## 1. Build
 

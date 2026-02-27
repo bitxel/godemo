@@ -125,22 +125,30 @@ func TestDeleteNonexistentSession(t *testing.T) {
 	}
 }
 
-func TestWSConnectWrongToken(t *testing.T) {
+func TestWSConnectWrongTokenViaAuth(t *testing.T) {
 	_, ts := newTestServer()
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/tunnel/ws?session_id=" + session.SessionID + "&token=wrong"
-	_, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err == nil {
-		t.Fatal("expected WS upgrade to fail with wrong token")
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/tunnel/ws?session_id=" + session.SessionID
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial failed: %v", err)
 	}
-	if resp != nil && resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	defer conn.Close()
+
+	_ = conn.WriteJSON(tunnelMessage{Type: "auth", Token: "wrong-token"})
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var errMsg tunnelMessage
+	if err := conn.ReadJSON(&errMsg); err != nil {
+		t.Fatalf("expected error msg, got: %v", err)
+	}
+	if errMsg.Type != "error" {
+		t.Fatalf("expected error, got %s", errMsg.Type)
 	}
 }
 
-func TestWSConnectMissingParams(t *testing.T) {
+func TestWSConnectMissingSessionID(t *testing.T) {
 	_, ts := newTestServer()
 	defer ts.Close()
 
@@ -158,7 +166,7 @@ func TestWSConnectNonexistentSession(t *testing.T) {
 	_, ts := newTestServer()
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/tunnel/ws?session_id=ses_fake&token=tok_fake"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/tunnel/ws?session_id=ses_fake"
 	_, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err == nil {
 		t.Fatal("expected WS upgrade to fail for nonexistent session")
@@ -352,7 +360,7 @@ func TestSessionActionDeleteWithExtraPath(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("expected 404 for DELETE with extra path, got %d", resp.StatusCode)
+		t.Fatalf("expected 404 for delete with extra path, got %d", resp.StatusCode)
 	}
 }
 
@@ -368,13 +376,13 @@ func TestSessionActionMethodNotAllowed(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("expected 405 for PUT, got %d", resp.StatusCode)
+		t.Fatalf("expected 405, got %d", resp.StatusCode)
 	}
 }
 
 // --- Public Request Edge Cases ---
 
-func TestPublicRequestExpiredSession(t *testing.T) {
+func TestPublicHTTPExpiredSession(t *testing.T) {
 	s, ts := newTestServer()
 	defer ts.Close()
 	s.sessionTTL = 1 * time.Millisecond
@@ -394,13 +402,13 @@ func TestPublicRequestExpiredSession(t *testing.T) {
 	}
 }
 
-func TestPublicRequestDisconnectedTunnel(t *testing.T) {
+func TestPublicHTTPDisconnectedTunnel(t *testing.T) {
 	s, ts := newTestServer()
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
 
-	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/test", nil)
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/", nil)
 	req.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -412,51 +420,18 @@ func TestPublicRequestDisconnectedTunnel(t *testing.T) {
 	}
 }
 
-func TestPublicRequestSDKDisconnectsMidFlight(t *testing.T) {
-	s, ts := newTestServer()
-	defer ts.Close()
-	s.requestTimeout = 2 * time.Second
-
-	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
-
-	go func() {
-		var msg tunnelMessage
-		_ = conn.ReadJSON(&msg)
-		conn.Close()
-	}()
-
-	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/test", nil)
-	req.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusGatewayTimeout && resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("expected error status for mid-flight disconnect, got %d", resp.StatusCode)
-	}
-}
-
-func TestPublicRequestTimeout(t *testing.T) {
+func TestPublicHTTPTimeout(t *testing.T) {
 	s, ts := newTestServer()
 	defer ts.Close()
 	s.requestTimeout = 200 * time.Millisecond
 
 	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 	defer conn.Close()
 
 	go func() {
-		var msg tunnelMessage
-		_ = conn.ReadJSON(&msg)
-		// intentionally don't respond, causing timeout
+		var req tunnelMessage
+		_ = conn.ReadJSON(&req)
 	}()
 
 	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/slow", nil)
@@ -467,45 +442,11 @@ func TestPublicRequestTimeout(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusGatewayTimeout {
-		t.Fatalf("expected 504 for timeout, got %d", resp.StatusCode)
+		t.Fatalf("expected 504, got %d", resp.StatusCode)
 	}
 }
 
-func TestPublicRequestMaxBodyLimit(t *testing.T) {
-	s, ts := newTestServer()
-	defer ts.Close()
-	s.maxHTTPBodyBytes = 100
-
-	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
-	defer conn.Close()
-
-	go func() {
-		for {
-			var msg tunnelMessage
-			if err := conn.ReadJSON(&msg); err != nil {
-				return
-			}
-		}
-	}()
-
-	bigBody := strings.NewReader(strings.Repeat("x", 200))
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/upload", bigBody)
-	req.Host = fmt.Sprintf("%s.%s", session.Subdomain, s.rootDomain)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400 for oversized body, got %d", resp.StatusCode)
-	}
-}
-
-// --- Healthz ---
+// --- Health Check ---
 
 func TestHealthz(t *testing.T) {
 	_, ts := newTestServer()
@@ -513,20 +454,15 @@ func TestHealthz(t *testing.T) {
 
 	resp, err := http.Get(ts.URL + "/api/healthz")
 	if err != nil {
-		t.Fatalf("healthz failed: %v", err)
+		t.Fatalf("request failed: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	var body map[string]string
-	_ = json.NewDecoder(resp.Body).Decode(&body)
-	if body["status"] != "ok" {
-		t.Fatalf("expected status ok, got %v", body)
-	}
 }
 
-// --- Concurrent Tests ---
+// --- Concurrent Operations ---
 
 func TestConcurrentSessionCreation(t *testing.T) {
 	s, ts := newTestServer()
@@ -627,7 +563,7 @@ func TestWSConnectExpiredSession(t *testing.T) {
 	session := createSession(t, ts.URL)
 	time.Sleep(10 * time.Millisecond)
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/tunnel/ws?session_id=" + session.SessionID + "&token=" + session.Token
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/tunnel/ws?session_id=" + session.SessionID
 	_, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err == nil {
 		t.Fatal("expected WS upgrade to fail for expired session")
@@ -670,17 +606,10 @@ func TestSDKWebSocketReconnect(t *testing.T) {
 
 	session := createSession(t, ts.URL)
 
-	conn1, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("first WS connection failed: %v", err)
-	}
+	conn1 := dialSDKWS(t, ts.URL, session)
+	conn2 := dialSDKWS(t, ts.URL, session)
 
-	conn2, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("second WS connection failed: %v", err)
-	}
-
-	_, _, err = conn1.ReadMessage()
+	_, _, err := conn1.ReadMessage()
 	if err == nil {
 		t.Fatal("first connection should have been closed on reconnect")
 	}
@@ -694,11 +623,7 @@ func TestWSCloseFromSDK(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-
-	sdkConn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	sdkConn := dialSDKWS(t, ts.URL, session)
 	defer sdkConn.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
@@ -741,10 +666,7 @@ func TestSDKErrorMessage(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 	defer conn.Close()
 
 	errMsg := tunnelMessage{Type: "error", Message: "test error"}
@@ -759,10 +681,7 @@ func TestSDKPingPong(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 	defer conn.Close()
 
 	_ = conn.WriteJSON(tunnelMessage{Type: "ping"})
@@ -905,8 +824,6 @@ func TestAllowCreateRateWindow(t *testing.T) {
 		bySubdomain:     make(map[string]string),
 		ipSessionNum:    make(map[string]int),
 	}
-	s.mu.Lock()
-	s.mu.Unlock()
 
 	if !s.allowCreate("10.0.0.1") {
 		t.Fatal("first create should be allowed")

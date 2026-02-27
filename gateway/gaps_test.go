@@ -43,11 +43,7 @@ func TestDeleteSessionWithActiveWSConn(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 	defer conn.Close()
 
 	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/sessions/"+session.SessionID, nil)
@@ -61,6 +57,7 @@ func TestDeleteSessionWithActiveWSConn(t *testing.T) {
 		t.Fatalf("expected 200, got %d", delResp.StatusCode)
 	}
 
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	_, _, err = conn.ReadMessage()
 	if err == nil {
 		t.Fatal("SDK WS should be closed after session delete")
@@ -74,7 +71,7 @@ func TestTunnelWSMethodNotAllowed(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/tunnel/ws?session_id="+session.SessionID+"&token="+session.Token, nil)
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/tunnel/ws?session_id="+session.SessionID, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
@@ -92,10 +89,7 @@ func TestSDKSendsPong(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 	defer conn.Close()
 
 	_ = conn.WriteJSON(tunnelMessage{Type: "pong"})
@@ -118,11 +112,7 @@ func TestSDKSendsWSDataInvalidBase64(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-
-	sdkConn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	sdkConn := dialSDKWS(t, ts.URL, session)
 	defer sdkConn.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws-test"
@@ -173,10 +163,7 @@ func TestSDKSendsWSDataBinaryOpcode(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	sdkConn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	sdkConn := dialSDKWS(t, ts.URL, session)
 	defer sdkConn.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws-bin"
@@ -224,10 +211,7 @@ func TestPublicHTTPErrorViaSDKDisconnect(t *testing.T) {
 	s.requestTimeout = 5 * time.Second
 
 	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 
 	go func() {
 		var req tunnelMessage
@@ -258,10 +242,7 @@ func TestPublicHTTPSDKReturnsInvalidBase64(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 	defer conn.Close()
 
 	go func() {
@@ -298,10 +279,7 @@ func TestPublicWSBinaryForwarding(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	sdkConn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	sdkConn := dialSDKWS(t, ts.URL, session)
 	defer sdkConn.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws-binary"
@@ -366,11 +344,7 @@ func TestPublicHTTPSendFailure(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 	conn.Close()
 	time.Sleep(50 * time.Millisecond)
 
@@ -394,10 +368,7 @@ func TestSDKWSDataNonexistentBridge(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 	defer conn.Close()
 
 	_ = conn.WriteJSON(tunnelMessage{
@@ -425,10 +396,7 @@ func TestSDKWSCloseNonexistentBridge(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 	defer conn.Close()
 
 	_ = conn.WriteJSON(tunnelMessage{
@@ -453,10 +421,7 @@ func TestSDKResponseNonexistentPending(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 	defer conn.Close()
 
 	_ = conn.WriteJSON(tunnelMessage{
@@ -480,10 +445,7 @@ func TestPublicHTTPPostWithBody(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 	defer conn.Close()
 
 	done := make(chan struct{})
@@ -541,10 +503,7 @@ func TestPublicHTTPForwardedHeaders(t *testing.T) {
 	defer ts.Close()
 
 	session := createSession(t, ts.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(session.WSEndpoint, nil)
-	if err != nil {
-		t.Fatalf("dial sdk ws failed: %v", err)
-	}
+	conn := dialSDKWS(t, ts.URL, session)
 	defer conn.Close()
 
 	done := make(chan struct{})
