@@ -726,7 +726,10 @@ func TestPathWhitelistExactMatch(t *testing.T) {
 		"port":          8888,
 		"allowed_paths": []string{"/api"},
 	})
-	resp, _ := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
 	defer resp.Body.Close()
 	var session createSessionResponse
 	json.NewDecoder(resp.Body).Decode(&session)
