@@ -6,10 +6,31 @@ One command, no signup, no config.
 **How it works:** A Go gateway runs on a public server. The SDK (Python or Go client)
 connects to it via WebSocket and forwards incoming HTTP/WS requests to your local port.
 
+## Install
+
+**One-liner (macOS / Linux / WSL):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bitxel/godemo/main/install.sh | bash
+```
+
+This downloads the latest `godemo-cli` binary to `~/.local/bin`. To install both the CLI and the gateway:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bitxel/godemo/main/install.sh | bash -s -- --component all
+```
+
+**Other methods:**
+
+| Method | Command |
+|--------|---------|
+| pip (Python SDK + CLI) | `pip install godemo` |
+| Homebrew (coming soon) | `brew install bitxel/tap/godemo` |
+| Go binary (manual) | See [Go Client](#go-client-binary) below |
+
 ## Quick Start
 
 ```bash
-pip install godemo
 godemo-cli 3000          # 3000 is your local port
 ```
 
@@ -76,22 +97,22 @@ If `--allow-path` is omitted, all paths are allowed (default behavior).
 
 ## Go Client (Binary)
 
-Download a pre-built binary from [GitHub Releases](https://github.com/bitxel/godemo/releases)
-for your platform (Linux, macOS, Windows — amd64 and arm64).
+The recommended way to install the Go client is with the installer:
 
 ```bash
-# Example: Linux amd64
-curl -Lo godemo-cli https://github.com/bitxel/godemo/releases/latest/download/godemo-cli-linux-amd64
-chmod +x godemo-cli
-./godemo-cli 3000
+curl -fsSL https://raw.githubusercontent.com/bitxel/godemo/main/install.sh | bash
 ```
 
-On macOS (Apple Silicon):
+Or download a pre-built binary manually from [GitHub Releases](https://github.com/bitxel/godemo/releases):
 
 ```bash
+# Linux amd64
+curl -Lo godemo-cli https://github.com/bitxel/godemo/releases/latest/download/godemo-cli-linux-amd64
+chmod +x godemo-cli && mv godemo-cli ~/.local/bin/
+
+# macOS Apple Silicon
 curl -Lo godemo-cli https://github.com/bitxel/godemo/releases/latest/download/godemo-cli-darwin-arm64
-chmod +x godemo-cli
-./godemo-cli 3000
+chmod +x godemo-cli && mv godemo-cli ~/.local/bin/
 ```
 
 ### Go Client CLI
@@ -206,7 +227,7 @@ Then point the SDK at it:
 GODEMO_GATEWAY_URL=https://tunnel.yourdomain.com godemo-cli 3000
 ```
 
-See [`docs/deployment.md`](docs/deployment.md) for full Nginx/Caddy/systemd setup.
+See [`docs/gateway_deployment.md`](docs/gateway_deployment.md) for full Nginx/Caddy/systemd setup.
 
 ### Gateway Environment Variables
 
