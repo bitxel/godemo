@@ -359,7 +359,9 @@ class CliHelpTests(unittest.TestCase):
         tunnel_mock = mock.MagicMock()
         tunnel_mock.public_url = "https://dm-test.example.com"
 
-        with mock.patch("sys.argv", ["godemo-cli", "3000", "--gateway", "http://test.gw"]):
+        with mock.patch(
+            "sys.argv", ["godemo-cli", "3000", "--gateway", "http://test.gw"]
+        ):
             with mock.patch(
                 "godemo.client.expose", return_value=tunnel_mock
             ) as expose_mock:
