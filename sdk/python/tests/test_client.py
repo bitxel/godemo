@@ -330,12 +330,12 @@ class SessionInfoTests(unittest.TestCase):
         info = _SessionInfo(
             session_id="ses_1",
             token="tok_1",
-            public_url="https://qs-abc.example.com",
+            public_url="https://dm-abc.example.com",
             ws_endpoint="wss://example.com/ws",
         )
         self.assertEqual(info.session_id, "ses_1")
         self.assertEqual(info.token, "tok_1")
-        self.assertEqual(info.public_url, "https://qs-abc.example.com")
+        self.assertEqual(info.public_url, "https://dm-abc.example.com")
         self.assertEqual(info.ws_endpoint, "wss://example.com/ws")
 
 
@@ -344,22 +344,22 @@ class SessionInfoTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class CliHelpTests(unittest.TestCase):
     def test_cli_help_exits_zero(self) -> None:
-        with mock.patch("sys.argv", ["godemo", "--help"]):
+        with mock.patch("sys.argv", ["godemo-cli", "--help"]):
             with self.assertRaises(SystemExit) as ctx:
                 run_cli()
             self.assertEqual(ctx.exception.code, 0)
 
     def test_cli_missing_port_exits_nonzero(self) -> None:
-        with mock.patch("sys.argv", ["godemo"]):
+        with mock.patch("sys.argv", ["godemo-cli"]):
             with self.assertRaises(SystemExit) as ctx:
                 run_cli()
             self.assertNotEqual(ctx.exception.code, 0)
 
     def test_cli_with_port_calls_expose(self) -> None:
         tunnel_mock = mock.MagicMock()
-        tunnel_mock.public_url = "https://qs-test.example.com"
+        tunnel_mock.public_url = "https://dm-test.example.com"
 
-        with mock.patch("sys.argv", ["godemo", "3000", "--gateway", "http://test.gw"]):
+        with mock.patch("sys.argv", ["godemo-cli", "3000", "--gateway", "http://test.gw"]):
             with mock.patch(
                 "godemo.client.expose", return_value=tunnel_mock
             ) as expose_mock:
@@ -377,9 +377,9 @@ class CliHelpTests(unittest.TestCase):
 
     def test_cli_custom_host(self) -> None:
         tunnel_mock = mock.MagicMock()
-        tunnel_mock.public_url = "https://qs-test.example.com"
+        tunnel_mock.public_url = "https://dm-test.example.com"
 
-        with mock.patch("sys.argv", ["godemo", "8000", "--host", "0.0.0.0"]):
+        with mock.patch("sys.argv", ["godemo-cli", "8000", "--host", "0.0.0.0"]):
             with mock.patch(
                 "godemo.client.expose", return_value=tunnel_mock
             ) as expose_mock:
@@ -397,11 +397,11 @@ class CliHelpTests(unittest.TestCase):
 
     def test_cli_with_allow_path(self) -> None:
         tunnel_mock = mock.MagicMock()
-        tunnel_mock.public_url = "https://qs-test.example.com"
+        tunnel_mock.public_url = "https://dm-test.example.com"
 
         with mock.patch(
             "sys.argv",
-            ["godemo", "3000", "--allow-path", "/api", "--allow-path", "/health"],
+            ["godemo-cli", "3000", "--allow-path", "/api", "--allow-path", "/health"],
         ):
             with mock.patch(
                 "godemo.client.expose", return_value=tunnel_mock
@@ -421,11 +421,11 @@ class CliHelpTests(unittest.TestCase):
     def test_cli_signal_pause_fallback(self) -> None:
         """When signal.pause() is unavailable (Windows), falls back to _stop_flag.wait()."""
         tunnel_mock = mock.MagicMock()
-        tunnel_mock.public_url = "https://qs-test.example.com"
+        tunnel_mock.public_url = "https://dm-test.example.com"
         tunnel_mock._stop_flag = mock.MagicMock()
         tunnel_mock._stop_flag.wait.side_effect = KeyboardInterrupt
 
-        with mock.patch("sys.argv", ["godemo", "3000"]):
+        with mock.patch("sys.argv", ["godemo-cli", "3000"]):
             with mock.patch("godemo.client.expose", return_value=tunnel_mock):
                 with mock.patch("signal.pause", side_effect=AttributeError):
                     try:

@@ -29,7 +29,7 @@ Two records are required:
 | A | `0x0f.me` | `<VPS IP>` |
 | A | `*.0x0f.me` | `<VPS IP>` |
 
-The wildcard record allows tunnel subdomains like `qs-xxxx.0x0f.me` to resolve.
+The wildcard record allows tunnel subdomains like `dm-a355898a.0x0f.me` to resolve.
 
 ## 3. TLS Certificate
 
@@ -167,7 +167,7 @@ curl -i https://godemo.0x0f.me/api/healthz
 
 # 3. Full end-to-end test
 pip install godemo
-godemo 3000 --gateway https://godemo.0x0f.me
+godemo-cli 3000 --gateway https://godemo.0x0f.me
 ```
 
 ## Client Quick Start
@@ -176,7 +176,7 @@ godemo 3000 --gateway https://godemo.0x0f.me
 
 ```bash
 pip install godemo
-godemo 3000 --gateway https://godemo.0x0f.me
+godemo-cli 3000 --gateway https://godemo.0x0f.me
 ```
 
 ### Go (pre-built binary)
@@ -184,9 +184,9 @@ godemo 3000 --gateway https://godemo.0x0f.me
 Download the binary for your platform from [Releases](https://github.com/bitxel/godemo/releases):
 
 ```bash
-curl -Lo godemo-client https://github.com/bitxel/godemo/releases/latest/download/godemo-client-linux-amd64
-chmod +x godemo-client
-./godemo-client 3000 --gateway https://godemo.0x0f.me
+curl -Lo godemo-cli https://github.com/bitxel/godemo/releases/latest/download/godemo-cli-linux-amd64
+chmod +x godemo-cli
+./godemo-cli 3000 --gateway https://godemo.0x0f.me
 ```
 
 Available binaries: `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`, `windows/arm64`.

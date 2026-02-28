@@ -55,9 +55,8 @@ func main() {
 	var allowPaths multiFlag
 	flag.Var(&allowPaths, "allow-path", "Only allow requests to this path prefix (repeatable)")
 
-
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: godemo-client [flags] <port>\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: godemo-cli [flags] <port>\n\n")
 		fmt.Fprintf(os.Stderr, "Expose a local port to the internet via Godemo gateway.\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()

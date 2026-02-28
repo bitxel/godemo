@@ -260,10 +260,10 @@ func TestReadRequestBodyEmpty(t *testing.T) {
 }
 
 func TestRandHex(t *testing.T) {
-	h1 := randHex(8)
-	h2 := randHex(8)
-	if len(h1) != 16 {
-		t.Fatalf("randHex(8) should produce 16 hex chars, got %d", len(h1))
+	h1 := randHex(4)
+	h2 := randHex(4)
+	if len(h1) != 8 {
+		t.Fatalf("randHex(4) should produce 8 hex chars, got %d", len(h1))
 	}
 	if h1 == h2 {
 		t.Fatal("two randHex calls should not produce the same value")
@@ -279,8 +279,8 @@ func TestDeterministicSubdomain(t *testing.T) {
 	if !strings.HasPrefix(s1, "dm-") {
 		t.Fatalf("expected dm- prefix, got %s", s1)
 	}
-	if len(s1) != 19 {
-		t.Fatalf("expected 19 chars (dm- + 16 hex), got %d (%s)", len(s1), s1)
+	if len(s1) != 11 {
+		t.Fatalf("expected 11 chars (dm- + 8 hex), got %d (%s)", len(s1), s1)
 	}
 
 	s3 := deterministicSubdomain("fp1", 8080)
@@ -344,8 +344,8 @@ func TestWriteForwardedResponseZeroStatus(t *testing.T) {
 func TestBuildPublicURL(t *testing.T) {
 	s := &server{trustProxy: false}
 	r := httptest.NewRequest(http.MethodGet, "http://gw.example.com/", nil)
-	url := s.buildPublicURL(r, "qs-abc", "example.com")
-	if url != "http://qs-abc.example.com" {
+	url := s.buildPublicURL(r, "dm-abc123", "example.com")
+	if url != "http://dm-abc123.example.com" {
 		t.Fatalf("unexpected URL: %s", url)
 	}
 }

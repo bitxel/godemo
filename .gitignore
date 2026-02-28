@@ -19,4 +19,4 @@ coverage.html
 gateway/gateway
 gateway/godemo-gateway
 gateway/godemo-gateway-test
-sdk/go/godemo-client
+sdk/go/godemo-cli

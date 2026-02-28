@@ -573,12 +573,12 @@ def _looks_like_asgi(app: Any) -> bool:
 def run_cli() -> None:
     """
     CLI entrypoint for: python -m godemo 3000
-    or: godemo 3000
+    or: godemo-cli 3000
     """
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="godemo",
+        prog="godemo-cli",
         description="Expose a local port to the internet via Godemo gateway.",
     )
     parser.add_argument("port", type=int, help="Local port to expose (e.g. 3000)")

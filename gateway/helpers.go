@@ -125,7 +125,7 @@ func randHex(n int) string {
 
 func deterministicSubdomain(fingerprint string, port int) string {
 	h := sha256.Sum256([]byte(fmt.Sprintf("%s:%d", fingerprint, port)))
-	return "dm-" + hex.EncodeToString(h[:8])
+	return "dm-" + hex.EncodeToString(h[:4])
 }
 
 var sensitiveQueryKeys = map[string]struct{}{

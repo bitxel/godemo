@@ -170,15 +170,15 @@ When both `fingerprint` and `port` are provided:
 - If the subdomain is already occupied by the same fingerprint, the old session is replaced.
 - If occupied by a different fingerprint, the request is rejected with `409 Conflict`.
 
-When `fingerprint` is omitted, the gateway falls back to a random `qs-` prefixed subdomain.
+When `fingerprint` is omitted, the gateway falls back to a random `dm-` prefixed subdomain.
 
 ### Response
 
 ```json
 {
   "session_id": "ses_abc123",
-  "subdomain": "dm-7f3a1b2c",
-  "public_url": "https://dm-7f3a1b2c.0x0f.me",
+  "subdomain": "dm-a355898a",
+  "public_url": "https://dm-a355898a.0x0f.me",
   "ws_endpoint": "wss://0x0f.me/api/v1/tunnel/ws?session_id=ses_abc123",
   "token": "...",
   "ttl_seconds": 7200,

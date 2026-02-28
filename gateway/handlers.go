@@ -70,7 +70,7 @@ func (s *server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	subdomain := "qs-" + randHex(8)
+	subdomain := "dm-" + randHex(4)
 	fingerprint := req.Fingerprint
 
 	if fingerprint != "" && req.Port > 0 {

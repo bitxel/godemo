@@ -10,7 +10,7 @@ connects to it via WebSocket and forwards incoming HTTP/WS requests to your loca
 
 ```bash
 pip install godemo
-godemo 3000          # 3000 is your local port
+godemo-cli 3000          # 3000 is your local port
 ```
 
 Output:
@@ -18,7 +18,7 @@ Output:
 ```
   godemo tunnel active
 
-  Public URL:  https://dm-7f3a1b2c.0x0f.me
+  Public URL:  https://dm-a355898a.0x0f.me
   Forwarding:  127.0.0.1:3000
 
   Press Ctrl+C to stop.
@@ -53,7 +53,7 @@ Restrict which paths are accessible through the tunnel. Requests to non-whitelis
 receive a `403 Forbidden` response from the gateway — they never reach your local server.
 
 ```bash
-godemo 3000 --allow-path /api --allow-path /health
+godemo-cli 3000 --allow-path /api --allow-path /health
 ```
 
 Output:
@@ -61,7 +61,7 @@ Output:
 ```
   godemo tunnel active
 
-  Public URL:  https://dm-7f3a1b2c.0x0f.me
+  Public URL:  https://dm-a355898a.0x0f.me
   Forwarding:  127.0.0.1:3000
   Allowed:     /api, /health
 
@@ -81,23 +81,23 @@ for your platform (Linux, macOS, Windows — amd64 and arm64).
 
 ```bash
 # Example: Linux amd64
-curl -Lo godemo-client https://github.com/bitxel/godemo/releases/latest/download/godemo-client-linux-amd64
-chmod +x godemo-client
-./godemo-client 3000
+curl -Lo godemo-cli https://github.com/bitxel/godemo/releases/latest/download/godemo-cli-linux-amd64
+chmod +x godemo-cli
+./godemo-cli 3000
 ```
 
 On macOS (Apple Silicon):
 
 ```bash
-curl -Lo godemo-client https://github.com/bitxel/godemo/releases/latest/download/godemo-client-darwin-arm64
-chmod +x godemo-client
-./godemo-client 3000
+curl -Lo godemo-cli https://github.com/bitxel/godemo/releases/latest/download/godemo-cli-darwin-arm64
+chmod +x godemo-cli
+./godemo-cli 3000
 ```
 
 ### Go Client CLI
 
 ```bash
-godemo-client <port> [--gateway URL] [--host HOST] [--allow-path PATH ...] [--verbose]
+godemo-cli <port> [--gateway URL] [--host HOST] [--allow-path PATH ...] [--verbose]
 ```
 
 | Flag | Default | Description |
@@ -116,7 +116,7 @@ godemo-client <port> [--gateway URL] [--host HOST] [--allow-path PATH ...] [--ve
 import godemo
 
 tunnel = godemo.expose(8000)
-print(tunnel.public_url)   # https://dm-xxxx.0x0f.me
+print(tunnel.public_url)   # https://dm-a355898a.0x0f.me
 input("Press Enter to stop...")
 tunnel.close()
 ```
@@ -170,7 +170,7 @@ Start a local server for a WSGI/ASGI app and create a tunnel.
 
 | Attribute / Method | Description |
 |-------------------|-------------|
-| `.public_url` | The public URL (e.g. `https://dm-xxxx.0x0f.me`) |
+| `.public_url` | The public URL (e.g. `https://dm-a355898a.0x0f.me`) |
 | `.session_id` | Gateway session ID |
 | `.close()` | Shut down the tunnel |
 | context manager | `with godemo.expose(8000) as t:` auto-closes |
@@ -178,7 +178,7 @@ Start a local server for a WSGI/ASGI app and create a tunnel.
 ### CLI
 
 ```bash
-godemo <port> [--gateway URL] [--host HOST] [--allow-path PATH ...]
+godemo-cli <port> [--gateway URL] [--host HOST] [--allow-path PATH ...]
 ```
 
 | Flag | Default | Description |
@@ -203,7 +203,7 @@ GODEMO_ROOT_DOMAIN=tunnel.yourdomain.com ./godemo-gateway
 Then point the SDK at it:
 
 ```bash
-GODEMO_GATEWAY_URL=https://tunnel.yourdomain.com godemo 3000
+GODEMO_GATEWAY_URL=https://tunnel.yourdomain.com godemo-cli 3000
 ```
 
 See [`docs/deployment.md`](docs/deployment.md) for full Nginx/Caddy/systemd setup.

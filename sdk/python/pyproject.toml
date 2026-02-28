@@ -22,7 +22,7 @@ dev = [
 ]
 
 [project.scripts]
-godemo = "godemo:run_cli"
+godemo-cli = "godemo:run_cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]

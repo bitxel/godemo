@@ -472,8 +472,8 @@ func TestNoFingerprintFallbackRandom(t *testing.T) {
 	s1 := createSession(t, ts.URL)
 	s2 := createSession(t, ts.URL)
 
-	if !strings.HasPrefix(s1.Subdomain, "qs-") {
-		t.Fatalf("no-fingerprint subdomain should have qs- prefix, got %s", s1.Subdomain)
+	if !strings.HasPrefix(s1.Subdomain, "dm-") {
+		t.Fatalf("no-fingerprint subdomain should have dm- prefix, got %s", s1.Subdomain)
 	}
 	if s1.Subdomain == s2.Subdomain {
 		t.Fatalf("random subdomains should differ: both got %s", s1.Subdomain)

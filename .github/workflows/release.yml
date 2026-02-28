@@ -56,7 +56,7 @@ jobs:
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
           cd sdk/go
-          go build -o ../../dist/godemo-client-${GOOS}-${GOARCH}${ext} .
+          go build -o ../../dist/godemo-cli-${GOOS}-${GOARCH}${ext} .
 
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

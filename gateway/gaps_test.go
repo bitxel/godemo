@@ -22,7 +22,7 @@ func TestCreateSessionSubdomainOrphanedEntry(t *testing.T) {
 	defer ts.Close()
 
 	s.mu.Lock()
-	s.bySubdomain["dm-deadbeef"] = "ses_orphaned"
+	s.bySubdomain["dm-deadbeefcafebabe"] = "ses_orphaned"
 	s.mu.Unlock()
 
 	body, _ := json.Marshal(map[string]any{"fingerprint": "testfp", "port": 1234})
@@ -833,11 +833,11 @@ func TestPublicHTTPHeaderForwarding(t *testing.T) {
 			RequestID: req.RequestID,
 			Status:    200,
 			Headers: map[string][]string{
-				"content-type":           {"application/json"},
-				"x-response-custom":      {"resp-value"},
-				"set-cookie":             {"token=xyz; Path=/", "lang=en; Path=/"},
-				"x-multi-value":          {"val1", "val2"},
-				"cache-control":          {"no-cache, no-store"},
+				"content-type":      {"application/json"},
+				"x-response-custom": {"resp-value"},
+				"set-cookie":        {"token=xyz; Path=/", "lang=en; Path=/"},
+				"x-multi-value":     {"val1", "val2"},
+				"cache-control":     {"no-cache, no-store"},
 			},
 			BodyB64: base64.StdEncoding.EncodeToString([]byte(`{"ok":true}`)),
 		}

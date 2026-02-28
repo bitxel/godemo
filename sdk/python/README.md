@@ -4,7 +4,7 @@
 
 ```bash
 pip install godemo
-godemo 3000
+godemo-cli 3000
 ```
 
 ## Code integration: expose a running port
